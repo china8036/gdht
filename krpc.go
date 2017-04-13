@@ -10,10 +10,13 @@ import (
 )
 
 const (
+	P            = "udp"
 	MaxAcceptLen = 4096
 	MaxPacket    = 5
 	BeginPort    = 6881
 	EndPort      = 6891
+	Query        = "q"
+	Ping         = "ping"
 )
 
 type packetType struct {
@@ -88,24 +91,35 @@ func New(nodeid string) (*Krpc, error) {
 	k := &Krpc{conn: conn, NodeId: nodeid, packetChan: make(chan packetType, MaxPacket)}
 	k.wg.Add(1)
 	go func() {
-		defer  k.wg.Done()
+		defer k.wg.Done()
 		k.DealReceivePacket()
 	}()
-        k.wg.Add(1)
+	k.wg.Add(1)
 	go func() {
-		defer  k.wg.Done()
+		defer k.wg.Done()
 		k.ResponseMsg()
 	}()
 	return k, nil
 }
 
+//ping一个地址
+func (k *Krpc) Ping(addr string) {
+	raddr,err := net.ResolveUDPAddr(P,addr)
+	if err!=nil{
+		log.Error(err)
+		return
+	}
+	query := QueryMessage{T: "xxx", Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
+	k.SendMsg(raddr, query)
+}
+
 // sendMsg bencodes the data in 'query' and sends it to the remote node.
-func (k *Krpc) SendMsg(raddr net.UDPAddr, query interface{}) {
+func (k *Krpc) SendMsg(raddr *net.UDPAddr, query interface{}) {
 	var b bytes.Buffer
 	if err := bencode.Marshal(&b, query); err != nil {
 		return
 	}
-	if n, err := k.conn.WriteToUDP(b.Bytes(), &raddr); err != nil {
+	if n, err := k.conn.WriteToUDP(b.Bytes(), raddr); err != nil {
 		log.Error(err)
 	} else {
 		log.Infof("write to %v:%v[%d]", raddr, string(b.Bytes()), n)
@@ -156,7 +170,6 @@ func (k *Krpc) DealReceivePacket() {
 	}
 }
 
-
-func (k *Krpc) Wait(){
+func (k *Krpc) Wait() {
 	k.wg.Wait()
 }
