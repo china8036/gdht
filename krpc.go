@@ -13,7 +13,7 @@ const (
 	P            = "udp"
 	BencodeFchr  = 'd'
 	MaxAcceptLen = 4096
-	MaxPacket    = 5
+	MaxPacket    = 10
 	BeginPort    = 6881
 	EndPort      = 6891
 	Query        = "q"
@@ -22,6 +22,7 @@ const (
 	FindNode     = "find_node"
 	GetPeers     = "get_peers"
 	AnnouncePeer = "announce_peer"
+	NodeCheckPing = "node check ping"
 )
 
 type getPeersResponse struct {
@@ -114,6 +115,17 @@ func (k *Krpc) Ping(addr string) {
 	}
 	query := QueryMessage{T: Ping, Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
 	k.SendMsg(raddr, query)
+}
+
+func (k *Krpc) NodeCheckPing(addr string) {
+	raddr, err := net.ResolveUDPAddr(P, addr)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	query := QueryMessage{T: NodeCheckPing, Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
+	k.SendMsg(raddr, query)
+
 }
 
 func (k *Krpc) FindNode(addr, nodeid string) {
