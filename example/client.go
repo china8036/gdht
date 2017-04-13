@@ -11,7 +11,7 @@ func main() {
 	for i, _ := range b {
 		b[i] = 0x00
 	}
-	m := 6
+	m := 8
 	mi := int(m % 8)
 	index := 19 - int(m/8) //
 	b[index] = byte(int(math.Pow(2, float64(mi))))

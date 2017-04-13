@@ -5,11 +5,13 @@ import (
 	"log"
 	"qiniupkg.com/x/errors.v7"
 	"sync"
+	"time"
 )
 
 type DHT struct {
 	NodeId string
 	k      *Krpc
+	kl    *KbucketList
 	wg     sync.WaitGroup
 }
 
@@ -21,7 +23,8 @@ func New(nodeid string) (*DHT, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &DHT{NodeId: nodeid, k: k}, nil
+	kl := NewKbucketList (nodeid)
+	return &DHT{NodeId: nodeid, k: k,kl:kl}, nil
 
 }
 
@@ -32,6 +35,12 @@ func (d *DHT) Run() {
 		defer  d.wg.Done()
 		d.loop()
 	}()
+	d.k.Ping("router.bittorrent.com:6881")
+	time.Sleep(time.Second*5)
+	d.k.Ping("router.utorrent.com:6881")
+	time.Sleep(time.Second*5)
+	d.k.Ping("dht.transmissionbt.com:6881")
+	time.Sleep(time.Second*5)
 	d.k.Ping("router.bittorrent.com:6881")
 	d.wg.Wait()
 
@@ -66,11 +75,14 @@ func (d *DHT) dealPacket(p packetType) {
 
 //查询的回应信息
 func (d *DHT) dealResponse(r responseType, laddr *net.UDPAddr) {
+	if !IsNodeId(r.R.Id){
+		log.Println("ivalid response node id ", r.R)
+		return
+	}
 	log.Println(r.T, " response", r.R)
 	switch r.T {
 	case Ping:
-		dis := HashDistance(d.NodeId,r.R.Id)
-		FindIndex(dis)
+		d.kl.UpdateOne(laddr,r.R.Id,d.k)
 		break
 	case FindNode:
 		break
@@ -85,6 +97,11 @@ func (d *DHT) dealResponse(r responseType, laddr *net.UDPAddr) {
 
 //其他节点查询本节点请求
 func (d *DHT) dealQuery(r responseType, laddr *net.UDPAddr) {
+	if !IsNodeId(r.A.Id){
+		log.Println("ivalid query node id ", r.A)
+		return
+	}
+	log.Println(r.T, " response", r.A)
 	switch r.T {
 	case Ping:
 		d.k.ResponsePing(r, laddr)
