@@ -1,24 +1,21 @@
 package main
 
+import ()
 import (
-	"net"
 	"fmt"
-	"os"
+	"math"
 )
 
 func main() {
-	conn, err := net.Dial("udp", "127.0.0.1:6881")
-	defer conn.Close()
-	if err != nil {
-		os.Exit(1)
+	var b [20]byte
+	for i, _ := range b {
+		b[i] = 0x00
 	}
+	m := 6
+	mi := int(m % 8)
+	index := 19 - int(m/8) //
+	b[index] = byte(int(math.Pow(2, float64(mi))))
+	fmt.Printf("%x\n", b)
+	fmt.Printf("%s\n", string(b[0:]))
 
-	conn.Write([]byte("Hello world!"))
-
-	fmt.Println("send msg")
-
-	var msg [20]byte
-	conn.Read(msg[0:])
-
-	fmt.Println("msg is", string(msg[0:10]))
 }

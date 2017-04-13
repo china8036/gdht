@@ -4,25 +4,25 @@ import (
 	"bytes"
 	bencode "github.com/jackpal/bencode-go"
 	"net"
-	"qiniupkg.com/x/log.v7"
+	"log"
 	"fmt"
 	"sync"
 )
 
 const (
 	P            = "udp"
+	BencodeFchr  = 'd'
 	MaxAcceptLen = 4096
 	MaxPacket    = 5
 	BeginPort    = 6881
 	EndPort      = 6891
 	Query        = "q"
+	Response     = "r"
 	Ping         = "ping"
+	FindNode     = "find_node"
+	GetPeers     = "get_peers"
+	AnnouncePeer = "announce_peer"
 )
-
-type packetType struct {
-	b     []byte
-	raddr *net.UDPAddr
-}
 
 type getPeersResponse struct {
 	// TODO: argh, values can be a string depending on the client (e.g: original bittorrent).
@@ -67,6 +67,11 @@ type replyMessage struct {
 	R map[string]interface{} "r"
 }
 
+type packetType struct {
+	r     responseType
+	raddr *net.UDPAddr
+}
+
 type Krpc struct {
 	conn       *net.UDPConn
 	NodeId     string
@@ -75,10 +80,12 @@ type Krpc struct {
 }
 
 //监听udp如果失败则加1继续尝试
-func New(nodeid string) (*Krpc, error) {
+func NewKrpc(nodeid string) (*Krpc, error) {
 	var lister net.PacketConn
 	var err error
-	for i := BeginPort; i <= EndPort; i++ {
+
+	i := BeginPort
+	for i = BeginPort; i <= EndPort; i++ {
 		lister, err = net.ListenPacket("udp", fmt.Sprintf(":%d", i))
 		if err == nil {
 			break
@@ -87,30 +94,46 @@ func New(nodeid string) (*Krpc, error) {
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println(i)
 	conn := lister.(*net.UDPConn)
 	k := &Krpc{conn: conn, NodeId: nodeid, packetChan: make(chan packetType, MaxPacket)}
 	k.wg.Add(1)
 	go func() {
 		defer k.wg.Done()
-		k.DealReceivePacket()
-	}()
-	k.wg.Add(1)
-	go func() {
-		defer k.wg.Done()
-		k.ResponseMsg()
+		k.BeginAcceptMsg()
 	}()
 	return k, nil
 }
 
 //ping一个地址
 func (k *Krpc) Ping(addr string) {
-	raddr,err := net.ResolveUDPAddr(P,addr)
-	if err!=nil{
-		log.Error(err)
+	raddr, err := net.ResolveUDPAddr(P, addr)
+	if err != nil {
+		log.Println(err)
 		return
 	}
-	query := QueryMessage{T: "xxx", Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
+	query := QueryMessage{T: Ping, Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
 	k.SendMsg(raddr, query)
+}
+
+func (k *Krpc) FindNode(addr, nodeid string) {
+	raddr, err := net.ResolveUDPAddr(P, addr)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	query := QueryMessage{T: FindNode, Y: Query, Q: FindNode, A: map[string]interface{}{"id": k.NodeId, "target": nodeid}}
+	k.SendMsg(raddr, query)
+}
+
+func (k *Krpc) ResponsePing(r responseType, laddr *net.UDPAddr) {
+	log.Println("some one ping me", r.A.Id)
+	reply := replyMessage{
+		T: r.T,
+		Y: Response,
+		R: map[string]interface{}{"id": k.NodeId},
+	}
+	k.SendMsg(laddr, reply)
 }
 
 // sendMsg bencodes the data in 'query' and sends it to the remote node.
@@ -120,54 +143,38 @@ func (k *Krpc) SendMsg(raddr *net.UDPAddr, query interface{}) {
 		return
 	}
 	if n, err := k.conn.WriteToUDP(b.Bytes(), raddr); err != nil {
-		log.Error(err)
+		log.Println(err)
 	} else {
-		log.Infof("write to %v:%v[%d]", raddr, string(b.Bytes()), n)
+		log.Println("write to ", raddr, string(b.Bytes()), n)
 	}
 	return
 }
 
 //回应消息
-func (k *Krpc) ResponseMsg() {
+func (k *Krpc) BeginAcceptMsg() {
 	for {
 		var accept_data = make([]byte, MaxAcceptLen)
 		n, addr, err := k.conn.ReadFromUDP(accept_data)
 		if err != nil {
-			log.Info("udp read error %v", err)
+			log.Println("udp read error", err)
 			return
 		}
 		if n == MaxAcceptLen {
-			log.Infof("accept msg too long drop some %v", accept_data)
+			log.Println("accept msg too long drop some", accept_data)
 		}
 		accept_data = accept_data[0:n]
-		k.packetChan <- packetType{accept_data, addr}
-	}
-
-}
-
-//处理接受的请求包
-func (k *Krpc) DealReceivePacket() {
-	for {
-		p := <-k.packetChan
-		if p.b[0] != 'd' {
-			// Malformed DHT packet. There are protocol extensions out
-			// there that we don't support or understand.
-			log.Infof("receive ot bencode data %v", p)
-			return
+		if accept_data[0] != BencodeFchr {
+			log.Println("receive data is not bencoded", accept_data)
+			continue
 		}
-		fmt.Println(string(p.b))
 		var response responseType
-		// The calls to bencode.Unmarshal() can be fragile.
-		defer func() {
-			if x := recover(); x != nil {
-				log.Error(x)
-			}
-		}()
-		if e2 := bencode.Unmarshal(bytes.NewBuffer(p.b), &response); e2 != nil {
-			log.Error(e2)
-			return
+		if e2 := bencode.Unmarshal(bytes.NewBuffer(accept_data), &response); e2 != nil {
+			log.Println(e2)
+			continue
 		}
+		k.packetChan <- packetType{response, addr}
 	}
+
 }
 
 func (k *Krpc) Wait() {

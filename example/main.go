@@ -8,12 +8,11 @@ import (
 
 func main() {
 	nodeid := lib.GenRandomString(20)
-	k,err := gdht.New(nodeid)
+	dht,err := gdht.New(nodeid)
 	if err!=nil{
 		fmt.Println(err)
 		return
 	}
-	k.Ping("67.215.246.10:6881")
-	k.Wait()
+	dht.Run()//"router.magnets.im:6881,router.bittorrent.com:6881,dht.transmissionbt.com:6881",
 
 }
