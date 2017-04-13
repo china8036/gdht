@@ -21,8 +21,6 @@ const (
 	Ping         = "ping"
 	FindNode     = "find_node"
 	GetPeers     = "get_peers"
-	AnnouncePeer = "announce_peer"
-	NodeCheckPing = "node check ping"
 )
 
 type getPeersResponse struct {
@@ -117,16 +115,6 @@ func (k *Krpc) Ping(addr string) {
 	k.SendMsg(raddr, query)
 }
 
-func (k *Krpc) NodeCheckPing(addr string) {
-	raddr, err := net.ResolveUDPAddr(P, addr)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	query := QueryMessage{T: NodeCheckPing, Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
-	k.SendMsg(raddr, query)
-
-}
 
 func (k *Krpc) FindNode(addr, nodeid string) {
 	raddr, err := net.ResolveUDPAddr(P, addr)

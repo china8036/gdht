@@ -3,7 +3,6 @@ package main
 import ()
 import (
 	"fmt"
-	"math"
 )
 
 func main() {
@@ -11,11 +10,8 @@ func main() {
 	for i, _ := range b {
 		b[i] = 0x00
 	}
-	m := 8
-	mi := int(m % 8)
-	index := 19 - int(m/8) //
-	b[index] = byte(int(math.Pow(2, float64(mi))))
-	fmt.Printf("%x\n", b)
-	fmt.Printf("%s\n", string(b[0:]))
+	test := b[0:]
+	btest := append(test[:0],test[1:]...)
+	fmt.Println(btest)
 
 }
