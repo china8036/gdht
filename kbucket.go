@@ -32,6 +32,7 @@ type kbucket struct {
 	nodes        []node
 	first_locked bool //第一个节点是否锁定
 	fight_node   node //争夺K桶的节点 如果一定时间第一个节点未返回ping信息 第一个将被抛掉 此节点加入K桶尾部
+	last_update_time time.Time
 }
 
 //增加一个node此方法只能在ping此节点被回应后调用
@@ -43,8 +44,11 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 	dis := NodeDistance(kl.nodeid, nodeid)
 	index := FindDistanceIndex(dis)
 	if kl.kbuckets[index].nodes == nil { //空K桶
+		kl.kbuckets[index].lock.Lock()
 		kl.kbuckets[index].nodes = make([]node, 0)
 		kl.kbuckets[index].nodes = append(kl.kbuckets[index].nodes, newNode)
+		kl.kbuckets[index].lock.Unlock()
+		kl.kbuckets[index].last_update_time = time.Now()
 		log.Println(index, " init and add first node ")
 		return
 	}
@@ -57,6 +61,7 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 			kl.kbuckets[index].nodes = append(kl.kbuckets[index].nodes[:i], kl.kbuckets[index].nodes[(i + 1):]...)
 			kl.kbuckets[index].nodes = append(kl.kbuckets[index].nodes, newNode) //这两步是把此节点移到尾部
 			kl.kbuckets[index].lock.Unlock()                                     //解锁
+			kl.kbuckets[index].last_update_time = time.Now()
 			log.Println(index, " update ", i, " to bottom")
 			return
 		}
@@ -66,6 +71,7 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 		kl.kbuckets[index].lock.Lock() //锁定
 		kl.kbuckets[index].nodes = append(kl.kbuckets[index].nodes, newNode)
 		kl.kbuckets[index].lock.Unlock() //解锁
+		kl.kbuckets[index].last_update_time = time.Now()
 		log.Println(index, " add new node to bottom")
 		return
 	}
@@ -73,16 +79,20 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 	if kl.kbuckets[index].first_locked { //如果有节点正在和第一个节点争夺 其他节点进来是直接抛弃掉
 		return
 	}
-	kl.kbuckets[index].first_locked = true
-	k.Ping(kl.kbuckets[index].nodes[0].addr.String())
-	<-time.NewTimer(time.Second * CheckPingSecond).C //延迟规定时间等待 如果还在锁定状态则抛掉第一个节点加入此节点到尾部
-	if !kl.kbuckets[index].first_locked { //已经被解除 说明第一个节点是好的  则直接抛掉此节点
-		return
-	}
-	kl.kbuckets[index].lock.Lock()                          //锁定
-	kl.kbuckets[index].nodes = kl.kbuckets[index].nodes[1:] //抛掉第一个节点
-	kl.kbuckets[index].nodes = append(kl.kbuckets[index].nodes, newNode)
-	kl.kbuckets[index].lock.Unlock() //锁定
+	go func() {//防止拥堵 放到go routine里
+		kl.kbuckets[index].first_locked = true
+		k.Ping(kl.kbuckets[index].nodes[0].addr.String())
+		<-time.NewTimer(time.Second * CheckPingSecond).C //延迟规定时间等待 如果还在锁定状态则抛掉第一个节点加入此节点到尾部
+		if !kl.kbuckets[index].first_locked { //已经被解除 说明第一个节点是好的  则直接抛掉此节点
+			return
+		}
+		kl.kbuckets[index].lock.Lock()                          //锁定
+		kl.kbuckets[index].nodes = kl.kbuckets[index].nodes[1:] //抛掉第一个节点
+		kl.kbuckets[index].nodes = append(kl.kbuckets[index].nodes, newNode)
+		kl.kbuckets[index].lock.Unlock() //锁定
+		kl.kbuckets[index].last_update_time = time.Now()
+		kl.kbuckets[index].first_locked = false//接触第一个暂用
+	}()
 
 }
 
