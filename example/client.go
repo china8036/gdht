@@ -13,5 +13,6 @@ func main() {
 	test := b[0:]
 	btest := append(test[:0],test[1:]...)
 	fmt.Println(btest)
+	fmt.Println(b[0:1])
 
 }

@@ -7,20 +7,23 @@ import (
 	"log"
 	"fmt"
 	"sync"
+	"strconv"
 )
 
 const (
-	P            = "udp"
-	BencodeFchr  = 'd'
-	MaxAcceptLen = 4096
-	MaxPacket    = 10
-	BeginPort    = 6881
-	EndPort      = 6891
-	Query        = "q"
-	Response     = "r"
-	Ping         = "ping"
-	FindNode     = "find_node"
-	GetPeers     = "get_peers"
+	P               = "udp"
+	BencodeFchr     = 'd'
+	MaxAcceptLen    = 4096
+	MaxPacket       = 10
+	BeginPort       = 6881
+	EndPort         = 6891
+	EcontactInfoLen = 26 //紧凑型node返回信息 26个字节 20个字节nodeid 4个字节ip 2个字节端口
+	Query           = "q"
+	Response        = "r"
+	Ping            = "ping"
+	FindNode        = "find_node"
+	GetPeers        = "get_peers"
+	AnnouncePeer    = "announce_peer"
 )
 
 type getPeersResponse struct {
@@ -115,7 +118,6 @@ func (k *Krpc) Ping(addr string) {
 	k.SendMsg(raddr, query)
 }
 
-
 func (k *Krpc) FindNode(addr, nodeid string) {
 	raddr, err := net.ResolveUDPAddr(P, addr)
 	if err != nil {
@@ -174,6 +176,29 @@ func (k *Krpc) BeginAcceptMsg() {
 		}
 		k.packetChan <- packetType{response, addr}
 	}
+
+}
+
+//解析紧凑型信息为node切边
+func (k *Krpc) ParseContactInformation(contactInfo string) []node {
+	var nodes []node
+	cl := len(contactInfo)
+	fmt.Println(cl)
+	if cl < EcontactInfoLen || cl%EcontactInfoLen != 0 {//整除
+		return nodes
+	}
+	max := int(cl / EcontactInfoLen)
+	binfo := []byte(contactInfo)
+	fmt.Println(binfo)
+        for i:=0;i<max;i++{
+		b := EcontactInfoLen * i
+		hash := binfo[b:b+20]
+		ip := binfo[b+20:b+24]
+		port,_ := strconv.Atoi(string(binfo[(b+24):b+26]))
+		newnode := node{nodeid:string(hash),addr:&net.UDPAddr{IP:ip,Port:port}}
+		nodes = append(nodes,newnode)
+	}
+	return nodes
 
 }
 

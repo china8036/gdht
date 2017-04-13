@@ -39,7 +39,6 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 	if kl.kbuckets == nil {
 		return
 	}
-	log.Println(kl.kbuckets)
 	newNode := node{addr: addr, nodeid: nodeid}
 	dis := NodeDistance(kl.nodeid, nodeid)
 	index := FindDistanceIndex(dis)
