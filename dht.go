@@ -4,9 +4,15 @@ import (
 	"net"
 	"log"
 	"sync"
-	"time"
 	"errors"
+	"fmt"
 )
+
+var SupperNode = []string{
+	"router.bittorrent.com:6881",
+	"router.utorrent.com:6881",
+	"router.magnets.im:6881",
+	"dht.transmissionbt.com:6881"}
 
 type DHT struct {
 	NodeId string
@@ -35,27 +41,17 @@ func (d *DHT) Run() {
 		defer d.wg.Done()
 		d.loop()
 	}()
-	d.k.Ping("router.bittorrent.com:6881", nil)
-	time.Sleep(time.Second * 2)
-	d.k.Ping("router.utorrent.com:6881", nil)
-	time.Sleep(time.Second * 2)
-	d.k.Ping("dht.transmissionbt.com:6881", nil)
-	time.Sleep(time.Second * 2)
-	d.k.Ping("router.bittorrent.com:6881", nil)
-	time.Sleep(time.Second * 2)
-	d.k.FindNode("router.bittorrent.com:6881", d.NodeId, nil)
-	d.wg.Wait()
+	for _, sn := range SupperNode {
+		d.k.Ping(sn, nil)               //ping每个超级节点 他们回复时候就讲超级节点加入到自己的K桶
+		d.k.FindNode(d.NodeId, sn, nil) //建立自己的K桶时候 不知道自己的K桶是否是空的 所以不能用d.FindNode() 这是改为用超级节点查询自己
+	}
 
 }
 
 //主loop主要是消息处理
 func (d *DHT) loop() {
 	for {
-		select {
-		case p := <-d.k.packetChan:
-			d.dealPacket(p)
-			break
-		}
+		d.dealPacket(<-d.k.packetChan)
 	}
 }
 
@@ -84,7 +80,6 @@ func (d *DHT) dealResponse(r responseType, laddr *net.UDPAddr) {
 		log.Println("self response ", r)
 		return
 	}
-	log.Println(r.T, " response", r.R.Id)
 	switch ParseResponseType(r.T) {
 	case ResponsePing:
 		d.kl.UpdateOne(laddr, r.R.Id, d.k) //更新K桶
@@ -93,6 +88,7 @@ func (d *DHT) dealResponse(r responseType, laddr *net.UDPAddr) {
 		d.dealFindNodeResponse(r, laddr)
 		break
 	case ResponseGetPeers: //查找peer的回复
+		d.dealGetPeersResponse(r, laddr)
 		break
 	case ResponseAnnouncePeer: //通知对方这边有文件信息时候 对方的回应信息
 		break
@@ -107,7 +103,6 @@ func (d *DHT) dealQuery(r responseType, laddr *net.UDPAddr) {
 		log.Println("ivalid query node id ", r.A.Id)
 		return
 	}
-	log.Println(r.T, " response", r.A.Id)
 	switch r.Q {
 	case Ping:
 		d.k.ResponsePing(r, laddr)
@@ -147,6 +142,7 @@ func (d *DHT) dealFindNodeResponse(r responseType, laddr *net.UDPAddr) {
 	}
 	if minDistanceNode.nodeid == reply_node.nodeid { //最近的就是回复的节点 停止查询
 		log.Println("find the closest node ", reply_node.nodeid)
+		fmt.Printf(" dis %x\n", NodeDistance(target, reply_node.nodeid))
 		return
 	}
 	closeNodes := FindMinDistanceNodes(FindNodeCloseNum, nodes, target) //选取最近的几个继续进行findnode操作
@@ -156,7 +152,41 @@ func (d *DHT) dealFindNodeResponse(r responseType, laddr *net.UDPAddr) {
 			continue
 		}
 		log.Println("continue find node ", target, " search in ", cnode.nodeid)
-		d.k.FindNode("", target, cnode.addr) //继续对返回的节点进行find_node查询
+		fmt.Printf(" dis %x\n", NodeDistance(target, cnode.nodeid))
+		d.k.FindNode(target, "", cnode.addr) //继续对返回的节点进行find_node查询
 	}
 
+}
+
+//处理GetPeer回应信息
+func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
+	//info_hash := GetGetPeesInfoHash(r.T)
+	if r.R.Nodes != "" {
+		nodes := d.k.ParseContactInformation(r.R.Nodes)
+		log.Println("rec peers closest nodes", nodes)
+	}
+	if r.R.Values != nil {
+		log.Println("find Values", r.R.Values)
+	}
+	return
+
+}
+
+//dht查询节点 一般用于组建自己的K桶用
+//从K桶中选8个最近的节点
+func (d *DHT) FindNode(nodeid string) {
+	nodes := d.kl.LookUpClosetNodes(nodeid)
+	if len(nodes) < 1 {
+		log.Println("not found clost nodes")
+		return
+	}
+	for _, node := range nodes {
+		d.k.FindNode(nodeid, "", node.addr) //对最近的8个节点自行FindNode操作
+	}
+
+}
+
+//等待
+func (d *DHT) Wait() {
+	d.wg.Wait()
 }

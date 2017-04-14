@@ -8,17 +8,18 @@ import (
 	"fmt"
 	"sync"
 	"encoding/binary"
+	"encoding/hex"
 )
 
 const (
 	P                    = "udp"
 	BencodeFchr          = 'd'
 	MaxAcceptLen         = 4096
-	MaxPacket            = 10
+	MaxPacket            = 20
 	BeginPort            = 6881
 	EndPort              = 6891
 	EcontactInfoLen      = 26 //紧凑型node返回信息 26个字节 20个字节nodeid 4个字节ip 2个字节端口
-	FindNodeCloseNum     = 8 //选最近的8个
+	FindNodeCloseNum     = 8  //选最近的8个
 	Query                = "q"
 	Response             = "r"
 	Ping                 = "ping"
@@ -114,32 +115,41 @@ func NewKrpc(nodeid string) (*Krpc, error) {
 
 //ping一个地址
 func (k *Krpc) Ping(addr string, laddr *net.UDPAddr) {
+	laddr = GetLaddr(addr, laddr)
 	if laddr == nil {
-		raddr, err := net.ResolveUDPAddr(P, addr)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		laddr = raddr
+		return
 	}
 	query := QueryMessage{T: ResponsePing, Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
 	k.SendMsg(laddr, query)
 }
 
 //查询nodes
-func (k *Krpc) FindNode(addr, nodeid string,laddr *net.UDPAddr) {
+func (k *Krpc) FindNode(nodeid, addr string, laddr *net.UDPAddr) {
+	laddr = GetLaddr(addr, laddr)
 	if laddr == nil {
-		raddr, err := net.ResolveUDPAddr(P, addr)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		laddr = raddr
+		return
 	}
 	query := QueryMessage{T: GenFindNodeT(nodeid), Y: Query, Q: FindNode, A: map[string]interface{}{"id": k.NodeId, "target": nodeid}}
 	k.SendMsg(laddr, query)
 }
 
+//查询Peers信息
+func (k *Krpc) GetPeers(info_hash, addr string, laddr *net.UDPAddr) {
+	ih, err := DecodeInfoHash(info_hash)//
+	if err!=nil{
+		log.Println(err)
+		return
+	}
+	laddr = GetLaddr(addr, laddr)
+	if laddr == nil {
+		return
+	}
+	query := QueryMessage{T: GenGetPeersT(ih), Y: Query, Q: GetPeers, A: map[string]interface{}{"id": k.NodeId, "info_hash": ih }}
+	k.SendMsg(laddr, query)
+
+}
+
+//回复ping
 func (k *Krpc) ResponsePing(r responseType, laddr *net.UDPAddr) {
 	log.Println("some one ping me", r.A.Id)
 	reply := replyMessage{
@@ -157,7 +167,7 @@ func (k *Krpc) SendMsg(raddr *net.UDPAddr, query interface{}) {
 		return
 	}
 	if n, err := k.conn.WriteToUDP(b.Bytes(), raddr); err != nil {
-		log.Println(err)
+		log.Println(err,GetDefaultTrace())
 	} else {
 		log.Println("write to ", raddr, string(b.Bytes()), n)
 	}
@@ -205,7 +215,7 @@ func (k *Krpc) ParseContactInformation(contactInfo string) []node {
 		hash := binfo[b:b+20]
 		ip := binfo[b+20:b+24]
 		bytesBuffer := bytes.NewBuffer(binfo[(b + 24):b+26])
-		var port int16
+		var port uint16
 		binary.Read(bytesBuffer, binary.BigEndian, &port)
 		newnode := node{nodeid: string(hash), addr: &net.UDPAddr{IP: ip, Port: int(port)}}
 		nodes = append(nodes, newnode)
@@ -216,6 +226,19 @@ func (k *Krpc) ParseContactInformation(contactInfo string) []node {
 
 func (k *Krpc) Wait() {
 	k.wg.Wait()
+}
+
+//尝试使用多种地址 优先使用laddr
+func GetLaddr(addr string, laddr *net.UDPAddr) *net.UDPAddr {
+	if laddr == nil {
+		raddr, err := net.ResolveUDPAddr(P, addr)
+		if err != nil {
+			log.Println(err)
+			return nil
+		}
+		laddr = raddr
+	}
+	return laddr
 }
 
 //解析返回信息
@@ -240,4 +263,34 @@ func GetFndNodeTarget(t string) string {
 		return t
 	}
 	return t[l:]
+}
+
+//处理getpeers的头部使其记录infohash值
+func GenGetPeersT(info_hash string) string {
+	return fmt.Sprintf("%s%s", ResponseGetPeers, info_hash)
+}
+
+//处理getpeers的t值得到infohash
+func GetGetPeesInfoHash(t string) string {
+	l := len(ResponseGetPeers)
+	if len(t) < l {
+		return t
+	}
+	return t[l:]
+}
+
+// DecodeInfoHash transforms a hex-encoded 20-characters string to a binary
+// infohash.
+func DecodeInfoHash(x string) (b string, err error) {//20位hash有时候是不可见字符
+	var h []byte
+	h, err = hex.DecodeString(x)
+	return string(h), err
+}
+
+// DecodeInfoHash transforms a hex-encoded 20-characters string to a binary
+// infohash.
+func EncodeInfoHash(x string) string {//20位hash有时候是不可见字符 encode后转换为可见字符
+	var h []byte
+	hex.Encode(h,[]byte(x))
+	return string(h)
 }

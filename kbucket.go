@@ -18,12 +18,13 @@ const (
 type KbucketList struct {
 	nodeid   string
 	kbuckets []kbucket
+	empty    chan bool
 }
 
 //新k桶列表
 func NewKbucketList(nodeid string) *KbucketList {
 	var kbuckets [MaxKbNum]kbucket
-	return &KbucketList{nodeid, kbuckets[0:]}
+	return &KbucketList{nodeid, kbuckets[0:], make(chan bool)}
 }
 
 //一个K桶
@@ -96,14 +97,40 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 
 }
 
+//查找最近的CloseNum个node
+func (kl *KbucketList) LookUpClosetNodes(nodeid string) []node {
+	dis := NodeDistance(kl.nodeid, nodeid)
+	index := FindDistanceIndex(dis)
+	if len(kl.kbuckets[index].nodes) >= FindNodeCloseNum { //此K桶满时候 直接返回此T桶
+		return kl.kbuckets[index].nodes[0:FindNodeCloseNum] //保证不超过FindNodeCloseNum
+	}
+	tmp_node := make([]node, 0)
+	if len(kl.kbuckets[index].nodes) != 0 {
+		tmp_node = kl.kbuckets[index].nodes
+	}
+	left_num := FindNodeCloseNum - len(tmp_node)
+	all_left_nodes := make([]node, 0)
+	for i := 0; i < MaxKbNum; i++ {
+		if i == index {
+			continue
+		}
+		if len(kl.kbuckets[i].nodes) == 0 {
+			continue
+		}
+		all_left_nodes = append(all_left_nodes, kl.kbuckets[i].nodes...)
+
+	}
+	left_nodes := FindMinDistanceNodes(left_num, all_left_nodes, nodeid)
+	if len(left_nodes) != 0 {
+		tmp_node = append(tmp_node, left_nodes...)
+	}
+	return tmp_node
+}
+
 //找出这个距离在K桶中的索引值
 func FindDistanceIndex(d1 string) int {
-	var b [20]byte
-	for i, _ := range b {
-		b[i] = 0x00
-	}
 	for m := 0; m < MaxKbNum-1; m++ {
-		if d1 >= FindIndexDistanceLimit(m) && d1 <= FindIndexDistanceLimit(m+1) {
+		if d1 >= FindIndexDistanceLimit(m) && d1 < FindIndexDistanceLimit(m+1) {
 			return m
 		}
 	}
