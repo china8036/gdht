@@ -28,14 +28,14 @@ func NewKbucketList(nodeid string) *KbucketList {
 
 //一个K桶
 type kbucket struct {
-	lock         sync.Mutex
-	nodes        []node
-	first_locked bool //第一个节点是否锁定
-	fight_node   node //争夺K桶的节点 如果一定时间第一个节点未返回ping信息 第一个将被抛掉 此节点加入K桶尾部
+	lock             sync.Mutex
+	nodes            []node
+	first_locked     bool //第一个节点是否锁定
+	fight_node       node //争夺K桶的节点 如果一定时间第一个节点未返回ping信息 第一个将被抛掉 此节点加入K桶尾部
 	last_update_time time.Time
 }
 
-//增加一个node此方法只能在ping此节点被回应后调用
+//增加一个node此方法只能在此节点被确认有效后调用
 func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 	if kl.kbuckets == nil {
 		return
@@ -79,9 +79,9 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 	if kl.kbuckets[index].first_locked { //如果有节点正在和第一个节点争夺 其他节点进来是直接抛弃掉
 		return
 	}
-	go func() {//防止拥堵 放到go routine里
+	go func() { //防止拥堵 放到go routine里
 		kl.kbuckets[index].first_locked = true
-		k.Ping(kl.kbuckets[index].nodes[0].addr.String())
+		k.Ping("", kl.kbuckets[index].nodes[0].addr)
 		<-time.NewTimer(time.Second * CheckPingSecond).C //延迟规定时间等待 如果还在锁定状态则抛掉第一个节点加入此节点到尾部
 		if !kl.kbuckets[index].first_locked { //已经被解除 说明第一个节点是好的  则直接抛掉此节点
 			return
@@ -91,7 +91,7 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 		kl.kbuckets[index].nodes = append(kl.kbuckets[index].nodes, newNode)
 		kl.kbuckets[index].lock.Unlock() //锁定
 		kl.kbuckets[index].last_update_time = time.Now()
-		kl.kbuckets[index].first_locked = false//接触第一个暂用
+		kl.kbuckets[index].first_locked = false //接触第一个暂用
 	}()
 
 }

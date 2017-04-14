@@ -2,8 +2,8 @@ package gdht
 
 import (
 	"net"
+	"qiniupkg.com/x/errors.v7"
 )
-
 
 const (
 	NodeIdLen = 20
@@ -11,12 +11,21 @@ const (
 
 //node结构
 type node struct {
-	addr *net.UDPAddr
-	nodeid   string
+	addr   *net.UDPAddr
+	nodeid string
+}
+
+//新的node
+func NewNode(addr *net.UDPAddr, nodeid string) (*node, error) {
+
+	if !IsNodeId(nodeid) {
+		return nil, errors.New("ivalid node id")
+	}
+	return &node{addr, nodeid}, nil
 }
 
 //判断是否是nodeid
-func IsNodeId(nodeid string) bool{
+func IsNodeId(nodeid string) bool {
 	return len(nodeid) == NodeIdLen
 }
 
@@ -45,3 +54,42 @@ func MinDistance(d1, d2 string) string {
 	return d2
 }
 
+//找出最近的几个nodes
+func FindMinDistanceNodes(num int, nodeids []node, targetid string) []node {
+	if len(nodeids) < num {
+		return nodeids
+	}
+	returnnodes := make([]node, num)
+
+	for i := 0; i < num; i++ {
+		inode, index := FindMinDistanceNode(nodeids, targetid)
+		returnnodes[i] = *inode
+		nodeids = append(nodeids[0:index], nodeids[index+1:]...) //等于删除index
+
+	}
+	return returnnodes
+
+}
+
+//找到最小距离的nodeid
+//node slice and index int
+func FindMinDistanceNode(nodeids []node, targetid string) (*node, int) {
+	if nodeids == nil {
+		return nil, 0
+	}
+	min := nodeids[0]
+	index := 0
+	mindis := NodeDistance(min.nodeid, targetid)
+	for i, v := range nodeids {
+		if i == 0 {
+			continue //
+		}
+		tdis := NodeDistance(v.nodeid, targetid)
+		if tdis < mindis {
+			min = v
+			mindis = tdis
+			index = i
+		}
+	}
+	return &min, index
+}

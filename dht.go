@@ -3,10 +3,9 @@ package gdht
 import (
 	"net"
 	"log"
-	"qiniupkg.com/x/errors.v7"
 	"sync"
 	"time"
-	"fmt"
+	"errors"
 )
 
 type DHT struct {
@@ -36,15 +35,15 @@ func (d *DHT) Run() {
 		defer d.wg.Done()
 		d.loop()
 	}()
-	d.k.Ping("router.bittorrent.com:6881")
+	d.k.Ping("router.bittorrent.com:6881", nil)
 	time.Sleep(time.Second * 2)
-	d.k.Ping("router.utorrent.com:6881")
+	d.k.Ping("router.utorrent.com:6881", nil)
 	time.Sleep(time.Second * 2)
-	d.k.Ping("dht.transmissionbt.com:6881")
+	d.k.Ping("dht.transmissionbt.com:6881", nil)
 	time.Sleep(time.Second * 2)
-	d.k.Ping("router.bittorrent.com:6881")
+	d.k.Ping("router.bittorrent.com:6881", nil)
 	time.Sleep(time.Second * 2)
-	d.k.FindNode("router.bittorrent.com:6881", d.NodeId)
+	d.k.FindNode("router.bittorrent.com:6881", d.NodeId, nil)
 	d.wg.Wait()
 
 }
@@ -81,17 +80,21 @@ func (d *DHT) dealResponse(r responseType, laddr *net.UDPAddr) {
 		log.Println("ivalid response node id ", r.R.Id)
 		return
 	}
+	if r.R.Id == d.NodeId { //对于自己的回应不处理
+		log.Println("self response ", r)
+		return
+	}
 	log.Println(r.T, " response", r.R.Id)
-	switch r.T {
-	case Ping:
-		d.kl.UpdateOne(laddr, r.R.Id, d.k)
+	switch ParseResponseType(r.T) {
+	case ResponsePing:
+		d.kl.UpdateOne(laddr, r.R.Id, d.k) //更新K桶
 		break
-	case FindNode:
-		d.dealFindNodeResponse(r)
+	case ResponseFindNode: //查找节点的回复
+		d.dealFindNodeResponse(r, laddr)
 		break
-	case GetPeers:
+	case ResponseGetPeers: //查找peer的回复
 		break
-	case AnnouncePeer:
+	case ResponseAnnouncePeer: //通知对方这边有文件信息时候 对方的回应信息
 		break
 	default:
 		log.Println("receive not defined response", r)
@@ -105,19 +108,55 @@ func (d *DHT) dealQuery(r responseType, laddr *net.UDPAddr) {
 		return
 	}
 	log.Println(r.T, " response", r.A.Id)
-	switch r.T {
+	switch r.Q {
 	case Ping:
 		d.k.ResponsePing(r, laddr)
+		break
+	case FindNode: //查找节点的回复
+		break
+	case GetPeers: //查找peer的回复
+		break
+	case AnnouncePeer: //其他节点发布信息他有相应的文件下载信息 你可以存储
 		break
 	}
 }
 
-//其他节点回复的节点查询信息
-func (d *DHT) dealFindNodeResponse(r responseType) {
+//其他节点回复的节点查询信息 比较返回的所有节点距目标节点的距离e1-n 并和回复的节点与目标节点的距离x比较 如果x最小测停止继续查找
+func (d *DHT) dealFindNodeResponse(r responseType, laddr *net.UDPAddr) {
+	target := GetFndNodeTarget(r.T)
+	if !IsNodeId(target) {
+		log.Println(target, "response target id ivalid", r.R.Id)
+		return
+	}
 	nodes := d.k.ParseContactInformation(r.R.Nodes)
 	if len(nodes) == 0 {
 		return
 	}
-	fmt.Println(nodes)
+	for _, enode := range nodes {
+		d.k.Ping("", enode.addr) //对于可利用的node都要ping一下 尝试加入到自己的K桶中
+	}
+	reply_node, err := NewNode(laddr, r.R.Id)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	tem_nodes := append(nodes, *reply_node)
+	minDistanceNode, _ := FindMinDistanceNode(tem_nodes, target)
+	if minDistanceNode == nil {
+		return
+	}
+	if minDistanceNode.nodeid == reply_node.nodeid { //最近的就是回复的节点 停止查询
+		log.Println("find the closest node ", reply_node.nodeid)
+		return
+	}
+	closeNodes := FindMinDistanceNodes(FindNodeCloseNum, nodes, target) //选取最近的几个继续进行findnode操作
+	//继续对每个返回的node执行find_node操作
+	for _, cnode := range closeNodes {
+		if cnode.nodeid == d.NodeId { //过滤到自己
+			continue
+		}
+		log.Println("continue find node ", target, " search in ", cnode.nodeid)
+		d.k.FindNode("", target, cnode.addr) //继续对返回的节点进行find_node查询
+	}
 
 }

@@ -7,23 +7,28 @@ import (
 	"log"
 	"fmt"
 	"sync"
-	"strconv"
+	"encoding/binary"
 )
 
 const (
-	P               = "udp"
-	BencodeFchr     = 'd'
-	MaxAcceptLen    = 4096
-	MaxPacket       = 10
-	BeginPort       = 6881
-	EndPort         = 6891
-	EcontactInfoLen = 26 //紧凑型node返回信息 26个字节 20个字节nodeid 4个字节ip 2个字节端口
-	Query           = "q"
-	Response        = "r"
-	Ping            = "ping"
-	FindNode        = "find_node"
-	GetPeers        = "get_peers"
-	AnnouncePeer    = "announce_peer"
+	P                    = "udp"
+	BencodeFchr          = 'd'
+	MaxAcceptLen         = 4096
+	MaxPacket            = 10
+	BeginPort            = 6881
+	EndPort              = 6891
+	EcontactInfoLen      = 26 //紧凑型node返回信息 26个字节 20个字节nodeid 4个字节ip 2个字节端口
+	FindNodeCloseNum     = 8 //选最近的8个
+	Query                = "q"
+	Response             = "r"
+	Ping                 = "ping"
+	FindNode             = "find_node"
+	GetPeers             = "get_peers"
+	AnnouncePeer         = "announce_peer"
+	ResponsePing         = "ping"
+	ResponseFindNode     = "find"
+	ResponseGetPeers     = "peer"
+	ResponseAnnouncePeer = "ance"
 )
 
 type getPeersResponse struct {
@@ -108,24 +113,31 @@ func NewKrpc(nodeid string) (*Krpc, error) {
 }
 
 //ping一个地址
-func (k *Krpc) Ping(addr string) {
-	raddr, err := net.ResolveUDPAddr(P, addr)
-	if err != nil {
-		log.Println(err)
-		return
+func (k *Krpc) Ping(addr string, laddr *net.UDPAddr) {
+	if laddr == nil {
+		raddr, err := net.ResolveUDPAddr(P, addr)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		laddr = raddr
 	}
-	query := QueryMessage{T: Ping, Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
-	k.SendMsg(raddr, query)
+	query := QueryMessage{T: ResponsePing, Y: Query, Q: Ping, A: map[string]interface{}{"id": k.NodeId}}
+	k.SendMsg(laddr, query)
 }
 
-func (k *Krpc) FindNode(addr, nodeid string) {
-	raddr, err := net.ResolveUDPAddr(P, addr)
-	if err != nil {
-		log.Println(err)
-		return
+//查询nodes
+func (k *Krpc) FindNode(addr, nodeid string,laddr *net.UDPAddr) {
+	if laddr == nil {
+		raddr, err := net.ResolveUDPAddr(P, addr)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		laddr = raddr
 	}
-	query := QueryMessage{T: FindNode, Y: Query, Q: FindNode, A: map[string]interface{}{"id": k.NodeId, "target": nodeid}}
-	k.SendMsg(raddr, query)
+	query := QueryMessage{T: GenFindNodeT(nodeid), Y: Query, Q: FindNode, A: map[string]interface{}{"id": k.NodeId, "target": nodeid}}
+	k.SendMsg(laddr, query)
 }
 
 func (k *Krpc) ResponsePing(r responseType, laddr *net.UDPAddr) {
@@ -183,20 +195,20 @@ func (k *Krpc) BeginAcceptMsg() {
 func (k *Krpc) ParseContactInformation(contactInfo string) []node {
 	var nodes []node
 	cl := len(contactInfo)
-	fmt.Println(cl)
-	if cl < EcontactInfoLen || cl%EcontactInfoLen != 0 {//整除
+	if cl < EcontactInfoLen || cl%EcontactInfoLen != 0 { //整除
 		return nodes
 	}
 	max := int(cl / EcontactInfoLen)
 	binfo := []byte(contactInfo)
-	fmt.Println(binfo)
-        for i:=0;i<max;i++{
+	for i := 0; i < max; i++ {
 		b := EcontactInfoLen * i
 		hash := binfo[b:b+20]
 		ip := binfo[b+20:b+24]
-		port,_ := strconv.Atoi(string(binfo[(b+24):b+26]))
-		newnode := node{nodeid:string(hash),addr:&net.UDPAddr{IP:ip,Port:port}}
-		nodes = append(nodes,newnode)
+		bytesBuffer := bytes.NewBuffer(binfo[(b + 24):b+26])
+		var port int16
+		binary.Read(bytesBuffer, binary.BigEndian, &port)
+		newnode := node{nodeid: string(hash), addr: &net.UDPAddr{IP: ip, Port: int(port)}}
+		nodes = append(nodes, newnode)
 	}
 	return nodes
 
@@ -204,4 +216,28 @@ func (k *Krpc) ParseContactInformation(contactInfo string) []node {
 
 func (k *Krpc) Wait() {
 	k.wg.Wait()
+}
+
+//解析返回信息
+func ParseResponseType(t string) string {
+	if len(t) < 4 {
+		return t
+	}
+	bt := []byte(t)
+	ty := string(bt[0:4])
+	return ty
+}
+
+//自定义findnode的t值 便于信息回复时候得到target
+func GenFindNodeT(target string) string {
+	return fmt.Sprintf("%s%s", ResponseFindNode, target)
+}
+
+//处理findnode的t值得到target
+func GetFndNodeTarget(t string) string {
+	l := len(ResponseFindNode)
+	if len(t) < l {
+		return t
+	}
+	return t[l:]
 }
