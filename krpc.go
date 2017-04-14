@@ -135,8 +135,8 @@ func (k *Krpc) FindNode(nodeid, addr string, laddr *net.UDPAddr) {
 
 //查询Peers信息
 func (k *Krpc) GetPeers(info_hash, addr string, laddr *net.UDPAddr) {
-	ih, err := DecodeInfoHash(info_hash)//
-	if err!=nil{
+	ih, err := DecodeInfoHash(info_hash) //
+	if err != nil {
 		log.Println(err)
 		return
 	}
@@ -160,6 +160,19 @@ func (k *Krpc) ResponsePing(r responseType, laddr *net.UDPAddr) {
 	k.SendMsg(laddr, reply)
 }
 
+//回应node查找信息直接返回最近的8个节点即可
+func (k *Krpc) ResponseFindNode(nodes []node, laddr *net.UDPAddr) {
+	var r []byte
+	for _,en := range nodes{
+		r = append(r,[]byte(en.nodeid)...)
+		r = append(r,[]byte(en.addr.IP)...)
+		r = append(r,[]byte(fmt.Sprintf("%x",en.addr.Port))...)
+	}
+	k.SendMsg(laddr,r)
+
+}
+
+
 // sendMsg bencodes the data in 'query' and sends it to the remote node.
 func (k *Krpc) SendMsg(raddr *net.UDPAddr, query interface{}) {
 	var b bytes.Buffer
@@ -167,7 +180,7 @@ func (k *Krpc) SendMsg(raddr *net.UDPAddr, query interface{}) {
 		return
 	}
 	if n, err := k.conn.WriteToUDP(b.Bytes(), raddr); err != nil {
-		log.Println(err,GetDefaultTrace())
+		log.Println(err, GetDefaultTrace())
 	} else {
 		log.Println("write to ", raddr, string(b.Bytes()), n)
 	}
@@ -281,7 +294,7 @@ func GetGetPeesInfoHash(t string) string {
 
 // DecodeInfoHash transforms a hex-encoded 20-characters string to a binary
 // infohash.
-func DecodeInfoHash(x string) (b string, err error) {//20位hash有时候是不可见字符
+func DecodeInfoHash(x string) (b string, err error) { //20位hash有时候是不可见字符
 	var h []byte
 	h, err = hex.DecodeString(x)
 	return string(h), err
@@ -289,8 +302,8 @@ func DecodeInfoHash(x string) (b string, err error) {//20位hash有时候是不�
 
 // DecodeInfoHash transforms a hex-encoded 20-characters string to a binary
 // infohash.
-func EncodeInfoHash(x string) string {//20位hash有时候是不可见字符 encode后转换为可见字符
+func EncodeInfoHash(x string) string { //20位hash有时候是不可见字符 encode后转换为可见字符
 	var h []byte
-	hex.Encode(h,[]byte(x))
+	hex.Encode(h, []byte(x))
 	return string(h)
 }

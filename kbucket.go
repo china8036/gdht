@@ -18,13 +18,12 @@ const (
 type KbucketList struct {
 	nodeid   string
 	kbuckets []kbucket
-	empty    chan bool
 }
 
 //新k桶列表
 func NewKbucketList(nodeid string) *KbucketList {
 	var kbuckets [MaxKbNum]kbucket
-	return &KbucketList{nodeid, kbuckets[0:], make(chan bool)}
+	return &KbucketList{nodeid, kbuckets[0:]}
 }
 
 //一个K桶

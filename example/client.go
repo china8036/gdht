@@ -2,13 +2,19 @@ package main
 
 import ()
 import (
-	"fmt"
 	"encoding/hex"
+	"github.com/china8036/gdht"
+	"local/oauth2/lib"
+	"fmt"
 )
 
 func main() {
-	x := "deca7a89a1dbdc4b213de1c0d5351e92582f31fb"
-	fmt.Println(DecodeInfoHash(x))
+	krpc, err := gdht.NewKrpc(lib.GenRandomString(20))
+	if err !=nil{
+		fmt.Println(err)
+	}
+	krpc.FindNode(krpc.NodeId,"127.0.0.1:6881",nil)
+	krpc.Wait()
 
 }
 

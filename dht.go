@@ -41,9 +41,9 @@ func (d *DHT) Run() {
 		defer d.wg.Done()
 		d.loop()
 	}()
-	for _, sn := range SupperNode {
-		d.k.Ping(sn, nil)               //ping每个超级节点 他们回复时候就讲超级节点加入到自己的K桶
-		d.k.FindNode(d.NodeId, sn, nil) //建立自己的K桶时候 不知道自己的K桶是否是空的 所以不能用d.FindNode() 这是改为用超级节点查询自己
+	for _, saddr := range SupperNode {
+		d.k.Ping(saddr, nil)               //ping每个超级节点 他们回复时候就讲超级节点加入到自己的K桶
+		d.k.FindNode(d.NodeId, saddr, nil) //建立自己的K桶时候 不知道自己的K桶是否是空的 所以不能用d.FindNode() 这是改为用超级节点查询自己
 	}
 
 }
@@ -80,9 +80,9 @@ func (d *DHT) dealResponse(r responseType, laddr *net.UDPAddr) {
 		log.Println("self response ", r)
 		return
 	}
+	d.kl.UpdateOne(laddr, r.R.Id, d.k) //更新K桶 根据协议 其他节点的任何回应信息 都应该去检查更新K桶
 	switch ParseResponseType(r.T) {
 	case ResponsePing:
-		d.kl.UpdateOne(laddr, r.R.Id, d.k) //更新K桶
 		break
 	case ResponseFindNode: //查找节点的回复
 		d.dealFindNodeResponse(r, laddr)
@@ -103,11 +103,15 @@ func (d *DHT) dealQuery(r responseType, laddr *net.UDPAddr) {
 		log.Println("ivalid query node id ", r.A.Id)
 		return
 	}
+	d.k.Ping("", laddr)//对方节点查询 主动ping下节点 通过后加入自己的K桶 网络上有很多坏节点 只查询其他节点 不对其他节点对其的查询做回应 这样的不加入K桶
+	log.Println("some one query me", r.A.Id)
 	switch r.Q {
 	case Ping:
 		d.k.ResponsePing(r, laddr)
 		break
 	case FindNode: //查找节点的回复
+		closetnodes := d.kl.LookUpClosetNodes(r.A.Id)//查找最近的nodes信息返回
+		d.k.ResponseFindNode(closetnodes,laddr)
 		break
 	case GetPeers: //查找peer的回复
 		break
