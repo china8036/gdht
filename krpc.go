@@ -10,6 +10,8 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"time"
+	"strings"
+	"strconv"
 )
 
 const (
@@ -86,7 +88,6 @@ type ErrorMessage struct {
 	Y string                 "y"
 	E []interface{} "e"
 }
-
 
 type packetType struct {
 	r     responseType
@@ -195,11 +196,20 @@ func (k *Krpc) ResponsePing(r responseType, laddr *net.UDPAddr) {
 func (k *Krpc) ResponseFindNode(nodes []node, response responseType, laddr *net.UDPAddr) {
 	var r []byte
 	for _, en := range nodes {
-		r = append(r, []byte(en.nodeid)...)
-		r = append(r, []byte(en.addr.IP)...)
+		ips := en.addr.IP.String()
+		ipslice := strings.Split(ips, ".")
+		var ipbyte [4]byte
+		for i, es := range ipslice {
+			esi, _ := strconv.Atoi(es)
+			ipbyte[i] = byte(esi)
+		}
+
+		tmp := int16(en.addr.Port)
 		bytesBuffer := bytes.NewBuffer([]byte{})
-		binary.Write(bytesBuffer, binary.BigEndian, en.addr.Port)
-		r = append(r, bytesBuffer.Bytes()...)
+		binary.Write(bytesBuffer, binary.BigEndian, tmp)
+		all := append([]byte(en.nodeid), ipbyte[0:]...)
+		all = append(all, bytesBuffer.Bytes()...)
+		r = append(r, all...)
 	}
 	log.Println("response find node len ", len(r))
 	reply := replyMessage{
