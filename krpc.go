@@ -9,19 +9,24 @@ import (
 	"sync"
 	"encoding/binary"
 	"encoding/hex"
+	"time"
 )
 
 const (
 	P                    = "udp"
 	BencodeFchr          = 'd'
 	MaxAcceptLen         = 4096
-	MaxPacket            = 20
+	MaxPacket            = 100 //接受的包 chan长
+	MaxQueryList         = 100 //发送的包 chan长
 	BeginPort            = 6881
 	EndPort              = 6891
 	EcontactInfoLen      = 26 //紧凑型node返回信息 26个字节 20个字节nodeid 4个字节ip 2个字节端口
+	EcontactPeerLen      = 6  //紧凑型peer信息 6分直接 ip+端口
 	FindNodeCloseNum     = 8  //选最近的8个
+	UdpWriteDeadline     = 1
 	Query                = "q"
 	Response             = "r"
+	Error                = "e"
 	Ping                 = "ping"
 	FindNode             = "find_node"
 	GetPeers             = "get_peers"
@@ -75,16 +80,34 @@ type replyMessage struct {
 	R map[string]interface{} "r"
 }
 
+//error消息
+type ErrorMessage struct {
+	T string                 "t"
+	Y string                 "y"
+	E []interface{} "e"
+}
+
+
 type packetType struct {
 	r     responseType
 	raddr *net.UDPAddr
 }
 
+type queryPacket struct {
+	tranId   int
+	data     []byte
+	raddr    *net.UDPAddr
+	sendTime time.Time
+}
+
 type Krpc struct {
-	conn       *net.UDPConn
-	NodeId     string
-	packetChan chan packetType
-	wg         sync.WaitGroup
+	conn        *net.UDPConn
+	NodeId      string
+	packetChan  chan packetType
+	wg          sync.WaitGroup
+	queryList   chan queryPacket //等待发送的链接
+	pendingList []*queryPacket   //已发送在等待回应的列表
+	lastTranId  int
 }
 
 //监听udp如果失败则加1继续尝试
@@ -104,11 +127,20 @@ func NewKrpc(nodeid string) (*Krpc, error) {
 	}
 	fmt.Println(i)
 	conn := lister.(*net.UDPConn)
-	k := &Krpc{conn: conn, NodeId: nodeid, packetChan: make(chan packetType, MaxPacket)}
+	//conn.SetWriteDeadline(time.Now().Add(time.Second * UdpWriteDeadline)) //设置udp写入时间限制
+	k := &Krpc{conn:     conn, NodeId: nodeid,
+		packetChan:  make(chan packetType, MaxPacket),
+		queryList:   make(chan queryPacket, MaxQueryList),
+		pendingList: make([]*queryPacket, MaxQueryList)}
 	k.wg.Add(1)
 	go func() {
 		defer k.wg.Done()
 		k.BeginAcceptMsg()
+	}()
+	k.wg.Add(1)
+	go func() {
+		defer k.wg.Done()
+		k.BeginSendMsg()
 	}()
 	return k, nil
 }
@@ -134,10 +166,9 @@ func (k *Krpc) FindNode(nodeid, addr string, laddr *net.UDPAddr) {
 }
 
 //查询Peers信息
-func (k *Krpc) GetPeers(info_hash, addr string, laddr *net.UDPAddr) {
-	ih, err := DecodeInfoHash(info_hash) //
-	if err != nil {
-		log.Println(err)
+func (k *Krpc) GetPeers(ih, addr string, laddr *net.UDPAddr) {
+	if len(ih) != NodeIdLen { //info_hash的长度 和 nodeid是一样的
+		log.Println("info hash long err ", ih)
 		return
 	}
 	laddr = GetLaddr(addr, laddr)
@@ -161,30 +192,70 @@ func (k *Krpc) ResponsePing(r responseType, laddr *net.UDPAddr) {
 }
 
 //回应node查找信息直接返回最近的8个节点即可
-func (k *Krpc) ResponseFindNode(nodes []node, laddr *net.UDPAddr) {
+func (k *Krpc) ResponseFindNode(nodes []node, response responseType, laddr *net.UDPAddr) {
 	var r []byte
-	for _,en := range nodes{
-		r = append(r,[]byte(en.nodeid)...)
-		r = append(r,[]byte(en.addr.IP)...)
-		r = append(r,[]byte(fmt.Sprintf("%x",en.addr.Port))...)
+	for _, en := range nodes {
+		r = append(r, []byte(en.nodeid)...)
+		r = append(r, []byte(en.addr.IP)...)
+		bytesBuffer := bytes.NewBuffer([]byte{})
+		binary.Write(bytesBuffer, binary.BigEndian, en.addr.Port)
+		r = append(r, bytesBuffer.Bytes()...)
 	}
-	k.SendMsg(laddr,r)
+	log.Println("response find node len ", len(r))
+	reply := replyMessage{
+		T: response.T,
+		Y: Response,
+		R: map[string]interface{}{"id": k.NodeId, "token": "aoeusnth", "nodes": string(r)},
+	}
+	k.SendMsg(laddr, reply)
 
 }
 
+//回应无效的请求
+func (k *Krpc) ResponseInvalid(r responseType, laddr *net.UDPAddr) {
+	error := ErrorMessage{
+		T: r.T,
+		Y: "e",
+		E: []interface{}{201, "this type not defind, Protocol Error, such as a malformed packet, invalid arguments, or bad token"},
+	}
+	k.SendMsg(laddr, error)
+
+}
 
 // sendMsg bencodes the data in 'query' and sends it to the remote node.
 func (k *Krpc) SendMsg(raddr *net.UDPAddr, query interface{}) {
+	//rq := reflect.TypeOf(query)
+	//if rq.String() == "gdht.QueryMessage"{
+	//	q := query.(QueryMessage)
+	//	k.lastTranId = k.lastTranId % MaxQueryList
+	//	bytesBuffer := bytes.NewBuffer([]byte{})
+	//	binary.Write(bytesBuffer, binary.BigEndian, k.lastTranId)
+	//	fchar := string(bytesBuffer.Bytes()[0:1])
+	//	q.T = fmt.Sprintf("%s%s", fchar, q.T) //用tranid占第一个字节
+	//	k.lastTranId++
+	//	query = q
+	//}
+
 	var b bytes.Buffer
 	if err := bencode.Marshal(&b, query); err != nil {
 		return
 	}
-	if n, err := k.conn.WriteToUDP(b.Bytes(), raddr); err != nil {
-		log.Println(err, GetDefaultTrace())
-	} else {
-		log.Println("write to ", raddr, string(b.Bytes()), n)
+	k.queryList <- queryPacket{data: b.Bytes(), raddr: raddr, tranId: k.lastTranId} //写入处理队列 来均衡每一处理的时间
+}
+
+//开始发送信息
+func (k *Krpc) BeginSendMsg() {
+	for {
+		query := <-k.queryList
+		if n, err := k.conn.WriteToUDP(query.data, query.raddr); err != nil {
+			log.Println(err, GetDefaultTrace())
+		} else {
+			log.Println("write to ", query.raddr, string(query.data), n)
+		}
+		query.sendTime = time.Now()
+		k.pendingList[query.tranId] = &query
 	}
-	return
+
 }
 
 //回应消息
@@ -205,17 +276,22 @@ func (k *Krpc) BeginAcceptMsg() {
 			continue
 		}
 		var response responseType
-		if e2 := bencode.Unmarshal(bytes.NewBuffer(accept_data), &response); e2 != nil {
-			log.Println(e2)
+		err1 := DecondeAcceptMsg(accept_data, &response)
+		if err1 != nil {
 			continue
 		}
+		//rbt := []byte(response.T) //过滤第一个字节对tranid的标记
+		//tranid := int(rbt[0])
+		//response.T = string(rbt[1:])
+		//k.pendingList[tranid] = nil //去除这个
 		k.packetChan <- packetType{response, addr}
+		log.Printf("packek chan len %d \n", len(k.packetChan))
 	}
 
 }
 
 //解析紧凑型信息为node切边
-func (k *Krpc) ParseContactInformation(contactInfo string) []node {
+func (k *Krpc) ParseContactNodes(contactInfo string) []node {
 	var nodes []node
 	cl := len(contactInfo)
 	if cl < EcontactInfoLen || cl%EcontactInfoLen != 0 { //整除
@@ -237,8 +313,39 @@ func (k *Krpc) ParseContactInformation(contactInfo string) []node {
 
 }
 
+//解析peers的紧凑信息 peer返回的ip port为 tcp 协议
+func ParseContactpeers(contactPeers []string) []net.TCPAddr {
+	var addrs []net.TCPAddr
+	for _, cp := range contactPeers {
+		cl := len(cp)
+		if cl != EcontactPeerLen {
+			continue
+		}
+		binfo := []byte(cp)
+		ip := binfo[0:4]
+		bytesBuffer := bytes.NewBuffer(binfo[4:6])
+		var port uint16
+		binary.Read(bytesBuffer, binary.BigEndian, &port)
+		addrs = append(addrs, net.TCPAddr{IP: ip, Port: int(port)})
+	}
+	return addrs
+}
+
 func (k *Krpc) Wait() {
 	k.wg.Wait()
+}
+
+//解析接受的记录
+func DecondeAcceptMsg(accept_data []byte, response *responseType) error {
+	defer func() {
+		if x := recover(); x != nil {
+			log.Println(x)
+		}
+	}()
+	if e2 := bencode.Unmarshal(bytes.NewBuffer(accept_data), &response); e2 != nil {
+		return e2
+	}
+	return nil
 }
 
 //尝试使用多种地址 优先使用laddr

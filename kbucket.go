@@ -67,7 +67,7 @@ func (kl *KbucketList) UpdateOne(addr *net.UDPAddr, nodeid string, k *Krpc) {
 		}
 	}
 	//此为不存在的情况
-	if len(kl.kbuckets[index].nodes) <= EachKbMaxLen { //数量不足时候 直接插入到尾部
+	if len(kl.kbuckets[index].nodes) < EachKbMaxLen { //数量不足时候 直接插入到尾部
 		kl.kbuckets[index].lock.Lock() //锁定
 		kl.kbuckets[index].nodes = append(kl.kbuckets[index].nodes, newNode)
 		kl.kbuckets[index].lock.Unlock() //解锁
