@@ -1,23 +1,31 @@
 package main
 
 import (
-	"fmt"
 	"github.com/china8036/gdht"
 	"math/rand"
 	"time"
+	"log"
+	"io/ioutil"
+	"os"
 )
 
-func main() {
+var cacheFile = "cache.log"
 
-	nodeid := string(randNodeId())
-	dht,err := gdht.New(nodeid)
-	if err!=nil{
-		fmt.Println(err)
+func main() {
+	fbyte, err := ioutil.ReadFile(cacheFile)
+	tmp_node := string(fbyte)
+	if !gdht.IsNodeId(tmp_node) {
+		tmp_node = string(randNodeId())
+		ioutil.WriteFile(cacheFile, []byte(tmp_node), os.ModePerm)
+	}
+	dht, err := gdht.New(tmp_node)
+	if err != nil {
+		log.Println(err)
 		return
 	}
 	dht.Run()
 	time.Sleep(time.Second * 10)
-	dht.GetPeers("deca7a89a1dbdc4b213de1c0d5351e92582f31fb")
+	dht.GetPeers("17c6f1eda45c5b884330b8cb02104408662a6f60")
 	dht.Wait()
 
 }

@@ -118,6 +118,7 @@ func (d *DHT) dealQuery(r responseType, laddr *net.UDPAddr) {
 	case GetPeers: //查找peer的回复
 		break
 	case AnnouncePeer: //其他节点发布信息他有相应的文件下载信息 你可以存储
+		log.Println("find new info hash ", r.A.InfoHash)
 		break
 	default:
 		d.k.ResponseInvalid(r, laddr)
