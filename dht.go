@@ -6,7 +6,6 @@ import (
 	"sync"
 	"errors"
 	"math/rand"
-	"fmt"
 )
 
 var SupperNode = []string{
@@ -66,6 +65,9 @@ func (d *DHT) dealPacket(p packetType) {
 		break
 	case Query:
 		d.dealQuery(p.r, p.raddr)
+		break
+	case Error: //err回复处理
+		log.Println("err ", p.r.E)
 		break
 	default:
 		log.Println("not defined", p)
@@ -207,18 +209,21 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 		}
 	}
 	if r.R.Values != nil { //发现peers 终止查询
-
 		addrs := ParseContactpeers(r.R.Values)
 		if len(addrs) < 1 {
 			log.Println("not found real peers addrs")
 			return
-		}
-		fmt.Println("token is ",r.R.Token)
+		}//找到peers
+		//peer_id := lib.GenRandomString(20)
 		for _, addr := range addrs {
-			log.Println(info_hash, " get_peers find addr:", addr.IP.String(),addr.Port)
+			log.Println(info_hash, " get_peers find addr:", addr.IP.String(), addr.Port)
+			//error := GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",addr.IP.String(),addr.Port))
+			//if error!=nil{
+			//	delete(InfoFindPeers, info_hash) //找到能链接的peer 删除记录
+			//}
 
 		}
-		delete(InfoFindPeers, info_hash) //找到peers 删除记录
+
 	}
 	return
 
@@ -249,7 +254,9 @@ func (d *DHT) GetPeers(encode_info_hash string) {
 		InfoFindPeers = make(map[string]map[string]bool)
 	}
 	if InfoFindPeers[info_hash] == nil {
-		InfoFindPeers[info_hash] = make(map[string]bool) //暂时不做时间处理 所有时间对info_hash的搜索 都算 先做调试用
+		InfoFindPeers[info_hash] = make(map[string]bool) //暂时不做时间处理 所有时间对info_hash的搜索
+		// 都算因为info_hash一样搜索的东西也一样
+		// 前一个搜索出来 这一次也用同样的结果就可以了
 	}
 	nodes := d.kl.LookUpClosetNodes(info_hash)
 	if len(nodes) < 1 {

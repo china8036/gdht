@@ -25,7 +25,7 @@ func main() {
 	}
 	dht.Run()
 	time.Sleep(time.Second * 10)
-	dht.GetPeers("17c6f1eda45c5b884330b8cb02104408662a6f60")
+	dht.GetPeers("91deb3de3c09a300e2b987efc4fa8508bbd924dc")
 	dht.Wait()
 
 }

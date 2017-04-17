@@ -181,6 +181,21 @@ func (k *Krpc) GetPeers(ih, addr string, laddr *net.UDPAddr) {
 
 }
 
+//announce peer
+func (k *Krpc) AnnouncePeer(ih, token string, port int, addr string, laddr *net.UDPAddr) {
+	laddr = GetLaddr(addr, laddr)
+	if laddr == nil {
+		return
+	}
+	query := QueryMessage{
+		T: ResponseAnnouncePeer,
+		Y: "q",
+		Q: AnnouncePeer, //"implied_port": 0,
+		A: map[string]interface{}{"id": k.NodeId, "info_hash": ih, "port": port, "token": token}}
+	k.SendMsg(laddr, query)
+
+}
+
 //回复ping
 func (k *Krpc) ResponsePing(r responseType, laddr *net.UDPAddr) {
 	log.Println("some one ping me", r.A.Id)
@@ -234,18 +249,6 @@ func (k *Krpc) ResponseInvalid(r responseType, laddr *net.UDPAddr) {
 
 // sendMsg bencodes the data in 'query' and sends it to the remote node.
 func (k *Krpc) SendMsg(raddr *net.UDPAddr, query interface{}) {
-	//rq := reflect.TypeOf(query)
-	//if rq.String() == "gdht.QueryMessage"{
-	//	q := query.(QueryMessage)
-	//	k.lastTranId = k.lastTranId % MaxQueryList
-	//	bytesBuffer := bytes.NewBuffer([]byte{})
-	//	binary.Write(bytesBuffer, binary.BigEndian, k.lastTranId)
-	//	fchar := string(bytesBuffer.Bytes()[0:1])
-	//	q.T = fmt.Sprintf("%s%s", fchar, q.T) //用tranid占第一个字节
-	//	k.lastTranId++
-	//	query = q
-	//}
-
 	var b bytes.Buffer
 	if err := bencode.Marshal(&b, query); err != nil {
 		return
@@ -290,12 +293,7 @@ func (k *Krpc) BeginAcceptMsg() {
 		if err1 != nil {
 			continue
 		}
-		//rbt := []byte(response.T) //过滤第一个字节对tranid的标记
-		//tranid := int(rbt[0])
-		//response.T = string(rbt[1:])
-		//k.pendingList[tranid] = nil //去除这个
 		k.packetChan <- packetType{response, addr}
-		log.Printf("packek chan len %d \n", len(k.packetChan))
 	}
 
 }
@@ -327,15 +325,9 @@ func (k *Krpc) ParseContactNodes(contactInfo string) []node {
 func ParseContactpeers(contactPeers []string) []net.TCPAddr {
 	var addrs []net.TCPAddr
 	for _, cp := range contactPeers {
-		cl := len(cp)
-		if cl != EcontactPeerLen {
-			continue
-		}
-		binfo := []byte(cp)
-		ip := binfo[0:4]
-		bytesBuffer := bytes.NewBuffer(binfo[4:6])
-		var port uint16
-		binary.Read(bytesBuffer, binary.BigEndian, &port)
+		info := []byte(cp)
+		ip := net.IPv4(info[0], info[1], info[2], info[3])
+		port := int((uint16(info[4]) << 8) | uint16(info[5]))
 		addrs = append(addrs, net.TCPAddr{IP: ip, Port: int(port)})
 	}
 	return addrs
