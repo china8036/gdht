@@ -6,6 +6,7 @@ import (
 	"sync"
 	"errors"
 	"math/rand"
+	"fmt"
 )
 
 var SupperNode = []string{
@@ -192,11 +193,11 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 		if closet_node == nil {
 			return
 		}
-		if closet_node.nodeid == reply_node.nodeid { //最近的等于回复的节点 说明此节点如果没有相关peers信息再查就没必要了此路终止查询
-			log.Println(reply_node.nodeid, " closet node not found peers ", info_hash)
-			log.Printf(" dis %x\n", NodeDistance(info_hash, reply_node.nodeid))
-			return
-		}
+		//if closet_node.nodeid == reply_node.nodeid { //最近的等于回复的节点 说明此节点如果没有相关peers信息再查就没必要了此路终止查询
+		//	log.Println(reply_node.nodeid, " closet node not found peers ", info_hash)
+		//	log.Printf(" dis %x\n", NodeDistance(info_hash, reply_node.nodeid))
+		//	return
+		//}
 		for _, wait_get_peers_node := range nodes {
 			if InfoFindPeers[info_hash][wait_get_peers_node.nodeid] {
 				log.Println(info_hash, " get peers skip ", wait_get_peers_node.nodeid)
@@ -217,10 +218,10 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 		//peer_id := lib.GenRandomString(20)
 		for _, addr := range addrs {
 			log.Println(info_hash, " get_peers find addr:", addr.IP.String(), addr.Port)
-			//error := GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",addr.IP.String(),addr.Port))
-			//if error!=nil{
-			//	delete(InfoFindPeers, info_hash) //找到能链接的peer 删除记录
-			//}
+			error := GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",addr.IP.String(),addr.Port))
+			if error!=nil{
+				delete(InfoFindPeers, info_hash) //找到能链接的peer 删除记录
+			}
 
 		}
 
