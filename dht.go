@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math/rand"
 	"fmt"
+	"local/oauth2/lib"
 )
 
 var SupperNode = []string{
@@ -215,7 +216,7 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 			log.Println("not found real peers addrs")
 			return
 		}//找到peers
-		//peer_id := lib.GenRandomString(20)
+		peer_id := lib.GenRandomString(20)
 		for _, addr := range addrs {
 			log.Println(info_hash, " get_peers find addr:", addr.IP.String(), addr.Port)
 			error := GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",addr.IP.String(),addr.Port))
