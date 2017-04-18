@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	KlStorePeriod = time.Minute //k桶定时保存时间
+	KlStorePeriod = time.Second*10 //k桶定时保存时间
 )
 
 var SupperNode = []string{
