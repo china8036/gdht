@@ -6,6 +6,7 @@ import (
 	"sync"
 	"math/rand"
 	"time"
+	"fmt"
 )
 
 const (
@@ -231,18 +232,16 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 		}
 	}
 	if r.R.Values != nil { //发现peers 终止查询
+		delete(InfoFindPeers, info_hash) //找到能链接的peer 删除记录
 		addrs := ParseContactpeers(r.R.Values)
 		if len(addrs) < 1 {
 			log.Println("not found real peers addrs")
 			return
 		} //找到peers
-		//peer_id := lib.GenRandomString(20)
+		peer_id := string(RandNodeId())
 		for _, addr := range addrs {
 			log.Println(info_hash, " get_peers find Addr:", addr.IP.String(), addr.Port)
-			//error := GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",Addr.IP.String(),Addr.Port))
-			//if error!=nil{
-			//	delete(InfoFindPeers, info_hash) //找到能链接的peer 删除记录
-			//}
+			go GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",addr.IP.String(),addr.Port))
 
 		}
 

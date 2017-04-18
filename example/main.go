@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"time"
 	"log"
+	"github.com/china8036/golog"
 )
 
 var cacheFile = "cache.log"
@@ -16,6 +17,8 @@ func main() {
 	//	tmp_node = string(randNodeId())
 	//	ioutil.WriteFile(cacheFile, []byte(tmp_node), os.ModePerm)
 	//}
+	ew := &golog.EvetWriter{}
+	log.SetOutput(ew)
 	dht, err := gdht.New()
 	if err != nil {
 		log.Println(err)

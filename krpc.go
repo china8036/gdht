@@ -127,7 +127,7 @@ func NewKrpc() (*Krpc, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println(i)
+	log.Println(i)
 	conn := lister.(*net.UDPConn)
 	//conn.SetWriteDeadline(time.Now().Add(time.Second * UdpWriteDeadline)) //设置udp写入时间限制
 	k := &Krpc{conn:     conn,
