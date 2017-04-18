@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	KlStorePeriod = time.Second*10 //k桶定时保存时间
+	KlStorePeriod = time.Minute //k桶定时保存时间
 )
 
 var SupperNode = []string{
@@ -34,7 +34,7 @@ func New() (*DHT, error) {
 		return nil, err
 	}
 	var kl *KbucketList
-	kl,err = ObtainStoreKbucketList(k.port)
+	kl, err = ObtainStoreKbucketList(k.port)
 	if err == nil && kl.Nodeid != "" {
 		log.Println(kl.Nodeid)
 		nodeid = kl.Nodeid
@@ -56,9 +56,10 @@ func (d *DHT) Run() {
 		d.loop()
 	}()
 	for _, saddr := range SupperNode {
-		d.k.Ping(saddr, nil)               //ping每个超级节点 他们回复时候就讲超级节点加入到自己的K桶
+		d.k.Ping(saddr, nil) //ping每个超级节点 他们回复时候就讲超级节点加入到自己的K桶
 	}
-	//d.FindNode(d.NodeId)
+	time.Sleep(time.Second * 10)
+	d.FindNode(d.NodeId)
 
 }
 

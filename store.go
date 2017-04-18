@@ -7,9 +7,13 @@ import (
 	"os"
 	"path"
 	"log"
+	"qiniupkg.com/x/errors.v7"
 )
 
-const StoreFilePre = "cache/%d.node"
+const (
+	StoreFilePre       = "cache/%d.node"
+	Max_log_size int64 = 2 * 1024 * 1024 //2M
+)
 
 //保存kl
 func SaveKbucketList(d *DHT) error {
@@ -21,7 +25,7 @@ func SaveKbucketList(d *DHT) error {
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(fmt.Sprintf(StoreFilePre, d.k.port), bytes, os.ModePerm)
+	err = Save(d.k.port, bytes)
 	if err != nil {
 		return err
 	}
@@ -29,8 +33,9 @@ func SaveKbucketList(d *DHT) error {
 }
 
 //解析kl
-func ObtainStoreKbucketList(port int, ) (*KbucketList, error) {
-	bytes, err := ioutil.ReadFile(fmt.Sprintf(StoreFilePre, port))
+func ObtainStoreKbucketList(port int) (*KbucketList, error) {
+	file := GetFile(port)
+	bytes, err := ioutil.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
@@ -42,4 +47,25 @@ func ObtainStoreKbucketList(port int, ) (*KbucketList, error) {
 	}
 	return &kl, nil
 
+}
+
+func Save(port int, b []byte) error {
+	file := GetFile(port)
+	err := os.MkdirAll(path.Dir(file), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	logfile, err := os.OpenFile(file, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	n, err := logfile.Write(b)
+	if err != nil {
+		return err
+	}
+	if n != len(b) {
+		return errors.New("not write all bytes")
+	}
+	return err
+}
+
+func GetFile(port int) string {
+	return fmt.Sprintf("cache/%d.node", port)
 }
