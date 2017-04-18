@@ -17,7 +17,7 @@ func main() {
 	//	tmp_node = string(randNodeId())
 	//	ioutil.WriteFile(cacheFile, []byte(tmp_node), os.ModePerm)
 	//}
-	ew:=golog.EvetWriter{}
+	ew:= &golog.EvetWriter{}
 	log.SetOutput(ew)
 	dht, err := gdht.New()
 	if err != nil {
