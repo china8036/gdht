@@ -45,7 +45,6 @@ func read(conn *net.TCPConn, size int, data *bytes.Buffer) error {
 	if err != nil || n != int64(size) {
 		return errors.New("read error")
 	}
-	log.Println("read 48 ", data)
 	return nil
 }
 
@@ -65,7 +64,6 @@ func readMessage(conn *net.TCPConn, data *bytes.Buffer) (
 	if err = read(conn, length, data); err != nil {
 		return
 	}
-	log.Println("read 68 ", data)
 	return
 }
 
@@ -77,7 +75,6 @@ func sendMessage(conn *net.TCPConn, data []byte) error {
 	binary.Write(buffer, binary.BigEndian, length)
 
 	conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
-	log.Println("send 80 ", append(buffer.Bytes(), data...))
 	_, err := conn.Write(append(buffer.Bytes(), data...))
 	return err
 }
@@ -90,7 +87,6 @@ func sendHandshake(conn *net.TCPConn, infoHash, peerID []byte) error {
 	copy(data[48:], peerID)//自己的peerid
 
 	conn.SetWriteDeadline(time.Now().Add(time.Second * 10))
-	log.Println("Handshake",data)
 	_, err := conn.Write(data)
 	return err
 }
@@ -274,7 +270,6 @@ func (wire *Wire) fetchMetadata(r Request) {
 		if err != nil {
 			return
 		}
-		log.Println(" read data", data)
 
 		if length == 0 {
 			continue
