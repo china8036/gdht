@@ -130,7 +130,7 @@ func (d *DHT) dealQuery(r responseType, laddr *net.UDPAddr) {
 		log.Println("ivalid query node id ", r.A.Id)
 		return
 	}
-	d.k.Ping("", laddr) //对方节点查询 主动ping下节点 通过后加入自己的K桶 网络上有很多坏节点 只查询其他节点 不对其他节点对其的查询做回应 这样的不加入K桶
+	//d.k.Ping("", laddr) //对方节点查询 主动ping下节点 通过后加入自己的K桶 网络上有很多坏节点 只查询其他节点 不对其他节点对其的查询做回应 这样的不加入K桶
 	log.Println("some one query me", r.A.Id)
 	switch r.Q {
 	case Ping:
