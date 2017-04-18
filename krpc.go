@@ -43,7 +43,7 @@ type getPeersResponse struct {
 	// TODO: argh, values can be a string depending on the client (e.g: original bittorrent).
 	Values []string "values"
 	Id     string   "id"
-	Nodes  string   "nodes"
+	Nodes  string   "Nodes"
 	Nodes6 string   "nodes6"
 	Token  string   "token"
 }
@@ -103,6 +103,7 @@ type queryPacket struct {
 
 type Krpc struct {
 	conn        *net.UDPConn
+	port        int
 	NodeId      string
 	packetChan  chan packetType
 	wg          sync.WaitGroup
@@ -112,7 +113,7 @@ type Krpc struct {
 }
 
 //监听udp如果失败则加1继续尝试
-func NewKrpc(nodeid string) (*Krpc, error) {
+func NewKrpc() (*Krpc, error) {
 	var lister net.PacketConn
 	var err error
 
@@ -129,7 +130,8 @@ func NewKrpc(nodeid string) (*Krpc, error) {
 	fmt.Println(i)
 	conn := lister.(*net.UDPConn)
 	//conn.SetWriteDeadline(time.Now().Add(time.Second * UdpWriteDeadline)) //设置udp写入时间限制
-	k := &Krpc{conn:     conn, NodeId: nodeid,
+	k := &Krpc{conn:     conn,
+		port:        i,
 		packetChan:  make(chan packetType, MaxPacket),
 		queryList:   make(chan queryPacket, MaxQueryList),
 		pendingList: make([]*queryPacket, MaxQueryList)}
@@ -211,7 +213,7 @@ func (k *Krpc) ResponsePing(r responseType, laddr *net.UDPAddr) {
 func (k *Krpc) ResponseFindNode(nodes []node, response responseType, laddr *net.UDPAddr) {
 	var r []byte
 	for _, en := range nodes {
-		ips := en.addr.IP.String()
+		ips := en.Addr.IP.String()
 		ipslice := strings.Split(ips, ".")
 		var ipbyte [4]byte
 		for i, es := range ipslice {
@@ -219,10 +221,10 @@ func (k *Krpc) ResponseFindNode(nodes []node, response responseType, laddr *net.
 			ipbyte[i] = byte(esi)
 		}
 
-		tmp := int16(en.addr.Port)
+		tmp := int16(en.Addr.Port)
 		bytesBuffer := bytes.NewBuffer([]byte{})
 		binary.Write(bytesBuffer, binary.BigEndian, tmp)
-		all := append([]byte(en.nodeid), ipbyte[0:]...)
+		all := append([]byte(en.Nodeid), ipbyte[0:]...)
 		all = append(all, bytesBuffer.Bytes()...)
 		r = append(r, all...)
 	}
@@ -230,7 +232,7 @@ func (k *Krpc) ResponseFindNode(nodes []node, response responseType, laddr *net.
 	reply := replyMessage{
 		T: response.T,
 		Y: Response,
-		R: map[string]interface{}{"id": k.NodeId, "token": "aoeusnth", "nodes": string(r)},
+		R: map[string]interface{}{"id": k.NodeId, "token": "aoeusnth", "Nodes": string(r)},
 	}
 	k.SendMsg(laddr, reply)
 
@@ -314,7 +316,7 @@ func (k *Krpc) ParseContactNodes(contactInfo string) []node {
 		bytesBuffer := bytes.NewBuffer(binfo[(b + 24):b+26])
 		var port uint16
 		binary.Read(bytesBuffer, binary.BigEndian, &port)
-		newnode := node{nodeid: string(hash), addr: &net.UDPAddr{IP: ip, Port: int(port)}}
+		newnode := node{Nodeid: string(hash), Addr: &net.UDPAddr{IP: ip, Port: int(port)}}
 		nodes = append(nodes, newnode)
 	}
 	return nodes

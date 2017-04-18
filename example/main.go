@@ -5,20 +5,18 @@ import (
 	"math/rand"
 	"time"
 	"log"
-	"io/ioutil"
-	"os"
 )
 
 var cacheFile = "cache.log"
 
 func main() {
-	fbyte, err := ioutil.ReadFile(cacheFile)
-	tmp_node := string(fbyte)
-	if !gdht.IsNodeId(tmp_node) {
-		tmp_node = string(randNodeId())
-		ioutil.WriteFile(cacheFile, []byte(tmp_node), os.ModePerm)
-	}
-	dht, err := gdht.New(tmp_node)
+	//fbyte, err := ioutil.ReadFile(cacheFile)
+	//tmp_node := string(fbyte)
+	//if !gdht.IsNodeId(tmp_node) {
+	//	tmp_node = string(randNodeId())
+	//	ioutil.WriteFile(cacheFile, []byte(tmp_node), os.ModePerm)
+	//}
+	dht, err := gdht.New()
 	if err != nil {
 		log.Println(err)
 		return

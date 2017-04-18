@@ -4,10 +4,12 @@ import (
 	"net"
 	"log"
 	"sync"
-	"errors"
 	"math/rand"
-	"fmt"
-	"local/oauth2/lib"
+	"time"
+)
+
+const (
+	KlStorePeriod = time.Minute //k桶定时保存时间
 )
 
 var SupperNode = []string{
@@ -21,20 +23,28 @@ var InfoFindPeers map[string]map[string]bool
 type DHT struct {
 	NodeId string
 	k      *Krpc
-	kl     *KbucketList
+	Kl     *KbucketList
 	wg     sync.WaitGroup
 }
 
-func New(nodeid string) (*DHT, error) {
-	if len(nodeid) != 20 {
-		return nil, errors.New("ivalid node id")
-	}
-	k, err := NewKrpc(nodeid)
+func New() (*DHT, error) {
+	var nodeid string
+	k, err := NewKrpc()
 	if err != nil {
 		return nil, err
 	}
-	kl := NewKbucketList(nodeid)
-	return &DHT{NodeId: nodeid, k: k, kl: kl}, nil
+	var kl *KbucketList
+	kl,err = ObtainStoreKbucketList(k.port)
+	if err == nil && kl.Nodeid != "" {
+		log.Println(kl.Nodeid)
+		nodeid = kl.Nodeid
+	} else {
+		nodeid = string(RandNodeId())
+		log.Println("obtain store kl err ", err)
+		kl = NewKbucketList(nodeid)
+	}
+	k.NodeId = nodeid
+	return &DHT{NodeId: nodeid, k: k, Kl: kl}, nil
 
 }
 
@@ -47,15 +57,24 @@ func (d *DHT) Run() {
 	}()
 	for _, saddr := range SupperNode {
 		d.k.Ping(saddr, nil)               //ping每个超级节点 他们回复时候就讲超级节点加入到自己的K桶
-		d.k.FindNode(d.NodeId, saddr, nil) //建立自己的K桶时候 不知道自己的K桶是否是空的 所以不能用d.FindNode() 这是改为用超级节点查询自己
 	}
+	//d.FindNode(d.NodeId)
 
 }
 
 //主loop主要是消息处理
 func (d *DHT) loop() {
 	for {
-		d.dealPacket(<-d.k.packetChan)
+		select {
+		case p := <-d.k.packetChan:
+			d.dealPacket(p)
+			break
+		case <-time.NewTimer(KlStorePeriod).C:
+			log.Println("store Kl")
+			go SaveKbucketList(d)
+			break
+		}
+
 	}
 }
 
@@ -87,7 +106,7 @@ func (d *DHT) dealResponse(r responseType, laddr *net.UDPAddr) {
 		log.Println("self response ", r)
 		return
 	}
-	d.kl.UpdateOne(laddr, r.R.Id, d.k) //更新K桶 根据协议 其他节点的任何回应信息 都应该去检查更新K桶
+	d.Kl.UpdateOne(laddr, r.R.Id, d.k) //更新K桶 根据协议 其他节点的任何回应信息 都应该去检查更新K桶
 	switch ParseResponseType(r.T) {
 	case ResponsePing:
 		break
@@ -100,7 +119,7 @@ func (d *DHT) dealResponse(r responseType, laddr *net.UDPAddr) {
 	case ResponseAnnouncePeer: //通知对方这边有文件信息时候 对方的回应信息
 		break
 	default:
-		log.Println("receive not defined response ", r.Q)
+		log.Println("receive not defined response ", r.R)
 	}
 }
 
@@ -117,7 +136,7 @@ func (d *DHT) dealQuery(r responseType, laddr *net.UDPAddr) {
 		d.k.ResponsePing(r, laddr)
 		break
 	case FindNode:                                        //查找节点的回复
-		closetnodes := d.kl.LookUpClosetNodes(r.A.Id) //查找最近的nodes信息返回
+		closetnodes := d.Kl.LookUpClosetNodes(r.A.Id) //查找最近的nodes信息返回
 		d.k.ResponseFindNode(closetnodes, r, laddr)
 		break
 	case GetPeers: //查找peer的回复
@@ -143,7 +162,7 @@ func (d *DHT) dealFindNodeResponse(r responseType, laddr *net.UDPAddr) {
 		return
 	}
 	for _, enode := range nodes {
-		d.k.Ping("", enode.addr) //对于可利用的node都要ping一下 尝试加入到自己的K桶中
+		d.k.Ping("", enode.Addr) //对于可利用的node都要ping一下 尝试加入到自己的K桶中
 	}
 	reply_node, err := NewNode(laddr, r.R.Id)
 	if err != nil {
@@ -155,20 +174,20 @@ func (d *DHT) dealFindNodeResponse(r responseType, laddr *net.UDPAddr) {
 	if minDistanceNode == nil {
 		return
 	}
-	if minDistanceNode.nodeid == reply_node.nodeid { //最近的就是回复的节点 停止查询
-		log.Println("find the closest node ", reply_node.nodeid)
-		log.Printf(" dis %x\n", NodeDistance(target, reply_node.nodeid))
+	if minDistanceNode.Nodeid == reply_node.Nodeid { //最近的就是回复的节点 停止查询
+		log.Println("find the closest node ", reply_node.Nodeid)
+		log.Printf(" dis %x\n", NodeDistance(target, reply_node.Nodeid))
 		return
 	}
 	closeNodes := FindMinDistanceNodes(FindNodeCloseNum, nodes, target) //选取最近的几个继续进行findnode操作
 	//继续对每个返回的node执行find_node操作
 	for _, cnode := range closeNodes {
-		if cnode.nodeid == d.NodeId { //过滤到自己
+		if cnode.Nodeid == d.NodeId { //过滤到自己
 			continue
 		}
-		log.Println("continue find node ", target, " search in ", cnode.nodeid)
-		log.Printf(" dis %x\n", NodeDistance(target, cnode.nodeid))
-		d.k.FindNode(target, "", cnode.addr) //继续对返回的节点进行find_node查询
+		log.Println("continue find node ", target, " search in ", cnode.Nodeid)
+		log.Printf(" dis %x\n", NodeDistance(target, cnode.Nodeid))
+		d.k.FindNode(target, "", cnode.Addr) //继续对返回的节点进行find_node查询
 	}
 
 }
@@ -194,20 +213,20 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 		if closet_node == nil {
 			return
 		}
-		//if closet_node.nodeid == reply_node.nodeid { //最近的等于回复的节点 说明此节点如果没有相关peers信息再查就没必要了此路终止查询
-		//	log.Println(reply_node.nodeid, " closet node not found peers ", info_hash)
-		//	log.Printf(" dis %x\n", NodeDistance(info_hash, reply_node.nodeid))
+		//if closet_node.Nodeid == reply_node.Nodeid { //最近的等于回复的节点 说明此节点如果没有相关peers信息再查就没必要了此路终止查询
+		//	log.Println(reply_node.Nodeid, " closet node not found peers ", info_hash)
+		//	log.Printf(" dis %x\n", NodeDistance(info_hash, reply_node.Nodeid))
 		//	return
 		//}
 		for _, wait_get_peers_node := range nodes {
-			if InfoFindPeers[info_hash][wait_get_peers_node.nodeid] {
-				log.Println(info_hash, " get peers skip ", wait_get_peers_node.nodeid)
+			if InfoFindPeers[info_hash][wait_get_peers_node.Nodeid] {
+				log.Println(info_hash, " get peers skip ", wait_get_peers_node.Nodeid)
 				continue
 			}
-			InfoFindPeers[info_hash][wait_get_peers_node.nodeid] = true
-			log.Printf(" continue search info_hash %s in %s node", info_hash, wait_get_peers_node.nodeid)
-			log.Printf(" dis %x\n", NodeDistance(info_hash, wait_get_peers_node.nodeid))
-			d.k.GetPeers(info_hash, "", wait_get_peers_node.addr)
+			InfoFindPeers[info_hash][wait_get_peers_node.Nodeid] = true
+			log.Printf(" continue search info_hash %s in %s node", info_hash, wait_get_peers_node.Nodeid)
+			log.Printf(" dis %x\n", NodeDistance(info_hash, wait_get_peers_node.Nodeid))
+			d.k.GetPeers(info_hash, "", wait_get_peers_node.Addr)
 		}
 	}
 	if r.R.Values != nil { //发现peers 终止查询
@@ -215,14 +234,14 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 		if len(addrs) < 1 {
 			log.Println("not found real peers addrs")
 			return
-		}//找到peers
-		peer_id := lib.GenRandomString(20)
+		} //找到peers
+		//peer_id := lib.GenRandomString(20)
 		for _, addr := range addrs {
-			log.Println(info_hash, " get_peers find addr:", addr.IP.String(), addr.Port)
-			error := GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",addr.IP.String(),addr.Port))
-			if error!=nil{
-				delete(InfoFindPeers, info_hash) //找到能链接的peer 删除记录
-			}
+			log.Println(info_hash, " get_peers find Addr:", addr.IP.String(), addr.Port)
+			//error := GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",Addr.IP.String(),Addr.Port))
+			//if error!=nil{
+			//	delete(InfoFindPeers, info_hash) //找到能链接的peer 删除记录
+			//}
 
 		}
 
@@ -234,13 +253,13 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 //dht查询节点 一般用于组建自己的K桶用
 //从K桶中选8个最近的节点
 func (d *DHT) FindNode(nodeid string) {
-	nodes := d.kl.LookUpClosetNodes(nodeid)
+	nodes := d.Kl.LookUpClosetNodes(nodeid)
 	if len(nodes) < 1 {
-		log.Println("not found clost nodes")
+		log.Println("not found clost Nodes")
 		return
 	}
 	for _, node := range nodes {
-		d.k.FindNode(nodeid, "", node.addr) //对最近的8个节点自行FindNode操作
+		d.k.FindNode(nodeid, "", node.Addr) //对最近的8个节点自行FindNode操作
 	}
 
 }
@@ -260,14 +279,14 @@ func (d *DHT) GetPeers(encode_info_hash string) {
 		// 都算因为info_hash一样搜索的东西也一样
 		// 前一个搜索出来 这一次也用同样的结果就可以了
 	}
-	nodes := d.kl.LookUpClosetNodes(info_hash)
+	nodes := d.Kl.LookUpClosetNodes(info_hash)
 	if len(nodes) < 1 {
-		log.Println("Getpeers not found clost nodes")
+		log.Println("Getpeers not found clost Nodes")
 		return
 	}
 	for _, node := range nodes {
-		InfoFindPeers[info_hash][node.nodeid] = true
-		d.k.GetPeers(info_hash, "", node.addr)
+		InfoFindPeers[info_hash][node.Nodeid] = true
+		d.k.GetPeers(info_hash, "", node.Addr)
 	}
 }
 

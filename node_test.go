@@ -26,7 +26,7 @@ func TestFunc(t *testing.T) {
 	if index != 1 {
 		t.Fail()
 	}
-	if node.nodeid != node2.nodeid {
+	if node.Nodeid != node2.Nodeid {
 		t.Fail()
 	}
 	minNodes := FindMinDistanceNodes(1, nodes, target)

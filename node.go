@@ -11,8 +11,8 @@ const (
 
 //node结构
 type node struct {
-	addr   *net.UDPAddr
-	nodeid string
+	Addr   *net.UDPAddr
+	Nodeid string
 }
 
 //新的node
@@ -79,12 +79,12 @@ func FindMinDistanceNode(nodeids []node, targetid string) (*node, int) {
 	}
 	min := nodeids[0]
 	index := 0
-	mindis := NodeDistance(min.nodeid, targetid)
+	mindis := NodeDistance(min.Nodeid, targetid)
 	for i, v := range nodeids {
 		if i == 0 {
 			continue //
 		}
-		tdis := NodeDistance(v.nodeid, targetid)
+		tdis := NodeDistance(v.Nodeid, targetid)
 		if tdis < mindis {
 			min = v
 			mindis = tdis
