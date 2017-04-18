@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"time"
 	"fmt"
+	"local/oauth2/lib"
 )
 
 const (
@@ -14,10 +15,11 @@ const (
 )
 
 var SupperNode = []string{
-	"router.bittorrent.com:6881",
-	"router.utorrent.com:6881",
-	"router.magnets.im:6881",
-	"dht.transmissionbt.com:6881"}
+	//"router.bittorrent.com:6881",
+	//"router.utorrent.com:6881",
+	//"router.magnets.im:6881",
+	//"dht.transmissionbt.com:6881"
+	"47.88.22.26:6881"}
 
 var InfoFindPeers map[string]map[string]bool
 
@@ -35,15 +37,15 @@ func New() (*DHT, error) {
 		return nil, err
 	}
 	var kl *KbucketList
-	kl, err = ObtainStoreKbucketList(k.port)
-	if err == nil && kl.Nodeid != "" {
-		log.Println(kl.Nodeid)
-		nodeid = kl.Nodeid
-	} else {
-		nodeid = string(RandNodeId())
-		log.Println("obtain store kl err ", err)
-		kl = NewKbucketList(nodeid)
-	}
+	//kl, err = ObtainStoreKbucketList(k.port)
+	//if err == nil && kl.Nodeid != "" {
+	//	log.Println(kl.Nodeid)
+	//	nodeid = kl.Nodeid
+	//} else {
+	nodeid = string(RandNodeId())
+	log.Println("obtain store kl err ", err)
+	kl = NewKbucketList(nodeid)
+	//}
 	k.NodeId = nodeid
 	return &DHT{NodeId: nodeid, k: k, Kl: kl}, nil
 
@@ -67,15 +69,17 @@ func (d *DHT) Run() {
 //主loop主要是消息处理
 func (d *DHT) loop() {
 	for {
-		select {
-		case p := <-d.k.packetChan:
-			d.dealPacket(p)
-			break
-		case <-time.NewTimer(KlStorePeriod).C:
-			log.Println("store Kl")
-			go SaveKbucketList(d)
-			break
-		}
+		p := <-d.k.packetChan
+		d.dealPacket(p)
+		//select {
+		//case p := <-d.k.packetChan:
+		//	d.dealPacket(p)
+		//	break
+		//case <-time.NewTimer(KlStorePeriod).C:
+		//	log.Println("store Kl")
+		//	go SaveKbucketList(d)
+		//	break
+		//}
 
 	}
 }
@@ -241,7 +245,7 @@ func (d *DHT) dealGetPeersResponse(r responseType, laddr *net.UDPAddr) {
 		peer_id := string(RandNodeId())
 		for _, addr := range addrs {
 			log.Println(info_hash, " get_peers find Addr:", addr.IP.String(), addr.Port)
-			go GetMetaInfo(info_hash,peer_id,fmt.Sprintf("%s:%d",addr.IP.String(),addr.Port))
+			go GetMetaInfo(info_hash, peer_id, fmt.Sprintf("%s:%d", addr.IP.String(), addr.Port))
 
 		}
 
@@ -297,6 +301,7 @@ func (d *DHT) Wait() {
 
 //随机生成nodeid
 func RandNodeId() []byte {
+	return []byte(lib.GenRandomString(20))
 	b := make([]byte, 20)
 	rand.Read(b)
 	return b
