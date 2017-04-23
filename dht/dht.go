@@ -45,7 +45,7 @@ type Config struct {
 	// callback when got get_peers request
 	OnGetPeers func(string, string, int)
 	// callback when got announce_peer request
-	 OnAnnouncePeer func(string, string, int)
+	OnAnnouncePeer func(string, string, int)
 	// blcoked ips
 	BlockedIPs []string
 	// blacklist size
@@ -120,12 +120,14 @@ type DHT struct {
 
 // New returns a DHT pointer. If config is nil, then config will be set to
 // the default config.
-func New(config *Config) *DHT {
+func New(config *Config, nodeid string) *DHT {
 	if config == nil {
 		config = NewStandardConfig()
 	}
-
-	node, err := newNode(randomString(20), config.Network, config.Address)
+	if nodeid == "" {
+		nodeid = randomString(20)
+	}
+	node, err := newNode(nodeid, config.Network, config.Address)
 	if err != nil {
 		panic(err)
 	}
@@ -255,7 +257,7 @@ func (dht *DHT) GetPeers(infoHash string) ([]*Peer, error) {
 		}
 
 		i := 0
-		for _ = range time.Tick(time.Second * 1) {
+		for _ = range time.Tick(time.Second*1) {
 			i++
 			peers = dht.peersManager.GetPeers(infoHash, dht.K)
 			if len(peers) != 0 || i == 30 {
@@ -285,7 +287,7 @@ func (dht *DHT) Run() {
 		select {
 		case pkt = <-dht.packets:
 			handle(dht, pkt)
-		case <-tick://定时检查 k桶是否初始化完毕 刷新k桶等任务
+		case <-tick: //定时检查 k桶是否初始化完毕 刷新k桶等任务
 			if dht.routingTable.Len() == 0 {
 				dht.join()
 			} else if dht.transactionManager.len() == 0 {
